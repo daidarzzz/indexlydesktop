@@ -27,6 +27,7 @@ ureq = { version = "2.10", features = ["json", "gzip"] }
 tauri-plugin-global-shortcut = "2.4.1"
 adblock = { version = "0.13", default-features = false, features = ["embedded-domain-resolver", "full-regex-handling"] }
 regex = "1.11"
+sha1 = "0.10"
 
 [profile.release]
 codegen-units = 1

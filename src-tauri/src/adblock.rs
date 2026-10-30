@@ -192,3 +192,9 @@ impl AdblockManager {
         }
     }
 }
+
+impl Default for AdblockManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}

@@ -85,14 +85,17 @@ impl PluginManager {
     }
 
     fn ensure_bundled_plugins(&self) {
-        // Intentar copiar los plugins existentes de IndexLy
-        let source_plugins_dir = Path::new("..").join("IndexLy").join("public").join("plugins");
-        let fallback_source = Path::new("c:/Users/david/Documents/Projects/IndexLy/public/plugins");
+        // FIX BUG 12: Eliminar rutas absolutas hardcodeadas en máquina personal
+        let env_path = std::env::var("INDEXLY_BUNDLED_PLUGINS_DIR").ok().map(std::path::PathBuf::from);
+        let rel_plugins = Path::new("plugins");
+        let rel_public = Path::new("..").join("public").join("plugins");
 
-        let search_path = if source_plugins_dir.exists() {
-            source_plugins_dir
-        } else if fallback_source.exists() {
-            fallback_source.to_path_buf()
+        let search_path = if let Some(p) = env_path.filter(|p| p.exists()) {
+            p
+        } else if rel_plugins.exists() {
+            rel_plugins.to_path_buf()
+        } else if rel_public.exists() {
+            rel_public
         } else {
             return;
         };

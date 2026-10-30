@@ -8,7 +8,6 @@ import {
   FeatureSet,
   HubApi,
   LegacyApi,
-  NativeApi,
   UiApi,
 } from '../types';
 import { HostEventsApi } from './EventsApi';
@@ -19,7 +18,7 @@ import { HostSearchApi } from './SearchApi';
 import { HostWorkspaceApi } from './WorkspaceApi';
 import { HostSettingsApi } from './SettingsApi';
 import { HostImporterApi } from './ImporterApi';
-import { NativeError } from './errors';
+import { createNativeApi } from './NativeApi';
 
 /**
  * Conjunto de características activadas en el host para detección dinámica.
@@ -32,6 +31,12 @@ export class HostFeatureSet implements FeatureSet {
     'library.v2_envelope',
     'storage.atomic_json',
     'events.namespaced',
+    'native.fs',
+    'native.process',
+    'native.db',
+    'native.keychain',
+    'workspace.leaves',
+    'custom_importers',
   ]);
 
   public has(feature: string): boolean {
@@ -51,185 +56,7 @@ export class HostFeatureSet implements FeatureSet {
   }
 }
 
-/**
- * Implementación de la superficie nativa pública (`app.native`).
- * Restringe `invoke` al namespace público `plugin:*`.
- */
-export function createPublicNativeApi(): NativeApi {
-  return {
-    async invoke<T = unknown>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-      // 1. Validar que la llamada pertenece al namespace público de plugins
-      if (!cmd.startsWith('plugin:') && !cmd.startsWith('native_')) {
-        throw new NativeError(
-          `Acceso denegado: El comando '${cmd}' no pertenece al namespace público 'plugin:*'. Consulte: docs/plugin-api/native.md`,
-          'ERR_INVOKE_DISALLOWED'
-        );
-      }
-
-      // 2. Invocar vía Tauri IPC si está presente
-      if (typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__) {
-        const { invoke } = await import('@tauri-apps/api/core');
-        return await invoke<T>(cmd, args);
-      }
-
-      throw new NativeError(`Tauri IPC no disponible para comando '${cmd}'`, 'ERR_NATIVE_UNAVAILABLE');
-    },
-
-    fs: {
-      async read() {
-        return new Uint8Array();
-      },
-      async readText(_path: string) {
-        return '';
-      },
-      async write() {},
-      async readDir() {
-        return [];
-      },
-      async mkdir() {},
-      async remove() {},
-      async rename() {},
-      async stat() {
-        return { size: 0, isFile: true, isDirectory: false };
-      },
-      async watch() {
-        return () => {};
-      },
-    },
-
-    path: {
-      join: (...parts: string[]) => parts.filter(Boolean).join('/').replace(/\/+/g, '/'),
-      resolve: (...parts: string[]) => parts.filter(Boolean).join('/'),
-      dirname: (p: string) => p.substring(0, p.lastIndexOf('/')) || '.',
-      basename: (p: string) => p.split('/').pop() || '',
-      extname: (p: string) => {
-        const b = p.split('/').pop() || '';
-        const i = b.lastIndexOf('.');
-        return i > 0 ? b.substring(i) : '';
-      },
-      async appData() {
-        return 'appData';
-      },
-      async appConfig() {
-        return 'appConfig';
-      },
-      async home() {
-        return 'home';
-      },
-      async temp() {
-        return 'temp';
-      },
-      sep: '/',
-    },
-
-    process: {
-      async spawn() {
-        return { pid: 1, async kill() {}, async wait() { return 0; } };
-      },
-      async exec(_cmd: string) {
-        return { code: 0, stdout: '', stderr: '' };
-      },
-      async kill() {},
-      async env() {
-        return {};
-      },
-      async cwd() {
-        return '/';
-      },
-    },
-
-    net: {
-      async fetch(input: string | Request, init?: RequestInit) {
-        return await fetch(input, init);
-      },
-      async download() {},
-      async listen() {
-        return () => {};
-      },
-    },
-
-    shell: {
-      async openPath() {},
-      async openUrl(url: string) {
-        window.open(url, '_blank', 'noopener,noreferrer');
-      },
-      async showInFolder() {},
-    },
-
-    clipboard: {
-      async readText() {
-        return await navigator.clipboard.readText();
-      },
-      async writeText(s: string) {
-        await navigator.clipboard.writeText(s);
-      },
-      async readImage() {
-        return null;
-      },
-      async writeImage() {},
-    },
-
-    notifications: {
-      async send() {},
-    },
-
-    tray: {
-      async create() {
-        return { id: 'tray-1' };
-      },
-      async update() {},
-      async remove() {},
-    },
-
-    shortcuts: {
-      async register() {
-        return () => {};
-      },
-      async unregister() {},
-    },
-
-    windows: {
-      async create() {
-        return 'win-1';
-      },
-      async list() {
-        return [];
-      },
-      async focus() {},
-      async close() {},
-    },
-
-    os: {
-      platform() {
-        return 'windows';
-      },
-      arch() {
-        return 'x64';
-      },
-      async version() {
-        return '10.0';
-      },
-      locale() {
-        return 'es';
-      },
-    },
-
-    keychain: {
-      async get() {
-        return null;
-      },
-      async set() {},
-      async delete() {},
-    },
-
-    db: {
-      async query<T>() {
-        return [] as T[];
-      },
-      async exec() {},
-    },
-  };
-}
+export const createPublicNativeApi = createNativeApi;
 
 /**
  * Crea una instancia de `App` ligada al contexto del host y opcionalmente a un plugin.
@@ -245,7 +72,7 @@ export function createAppInstance(
   const workspace = sharedWorkspace || new HostWorkspaceApi(events);
   const storage = new ScopedStorageApi(pluginId);
   const features = new HostFeatureSet();
-  const native = createPublicNativeApi();
+  const native = createNativeApi();
 
   const library = new HostLibraryApi(events);
   const search = new HostSearchApi(events);

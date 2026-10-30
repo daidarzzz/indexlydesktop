@@ -21,6 +21,75 @@ pub struct AppState {
     pub adblock: Arc<crate::adblock::AdblockManager>,
 }
 
+/// FIX BUG 8: Extraer el info_hash SHA-1 real a partir del diccionario bencoded 'info'
+pub fn extract_torrent_info_hash(bytes: &[u8]) -> Option<String> {
+    use sha1::{Digest, Sha1};
+
+    let pattern = b"4:info";
+    let pos = bytes.windows(pattern.len()).position(|w| w == pattern)?;
+    let start = pos + pattern.len();
+    if start >= bytes.len() {
+        return None;
+    }
+
+    let end = find_bencode_value_end(bytes, start)?;
+    let info_bytes = &bytes[start..end];
+
+    let mut hasher = Sha1::new();
+    hasher.update(info_bytes);
+    let result = hasher.finalize();
+    Some(format!("{:x}", result))
+}
+
+fn find_bencode_value_end(bytes: &[u8], mut idx: usize) -> Option<usize> {
+    if idx >= bytes.len() {
+        return None;
+    }
+    match bytes[idx] {
+        b'i' => {
+            idx += 1;
+            while idx < bytes.len() && bytes[idx] != b'e' {
+                idx += 1;
+            }
+            if idx < bytes.len() {
+                Some(idx + 1)
+            } else {
+                None
+            }
+        }
+        b'l' | b'd' => {
+            idx += 1;
+            while idx < bytes.len() && bytes[idx] != b'e' {
+                idx = find_bencode_value_end(bytes, idx)?;
+            }
+            if idx < bytes.len() {
+                Some(idx + 1)
+            } else {
+                None
+            }
+        }
+        b'0'..=b'9' => {
+            let mut colon = idx;
+            while colon < bytes.len() && bytes[colon].is_ascii_digit() {
+                colon += 1;
+            }
+            if colon < bytes.len() && bytes[colon] == b':' {
+                let len_str = std::str::from_utf8(&bytes[idx..colon]).ok()?;
+                let len: usize = len_str.parse().ok()?;
+                let end = colon + 1 + len;
+                if end <= bytes.len() {
+                    Some(end)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
 #[tauri::command]
 pub fn import_file(
     state: State<'_, AppState>,
@@ -56,7 +125,15 @@ pub fn import_file(
 
         let source_id = Uuid::new_v4().to_string();
         let display_name = format!("🧲 {}", game_title);
-        let magnet_link = format!("magnet:?xt=urn:btih:synthetic&dn={}", game_title.replace(' ', "+"));
+
+        // FIX BUG 8: Extraer SHA-1 info_hash real del diccionario bencode
+        let info_hash = extract_torrent_info_hash(content.as_bytes()).unwrap_or_else(|| {
+            use sha1::{Digest, Sha1};
+            let mut hasher = Sha1::new();
+            hasher.update(content.as_bytes());
+            format!("{:x}", hasher.finalize())
+        });
+        let magnet_link = format!("magnet:?xt=urn:btih:{}&dn={}", info_hash, game_title.replace(' ', "+"));
 
         let item = UnifiedItem {
             id: format!("{}:0", source_id),
@@ -65,6 +142,7 @@ pub fn import_file(
             title: game_title.clone(),
             subtitle: Some("Torrent".to_string()),
             file_size: None,
+            file_size_bytes: None,
             link: Some(magnet_link),
             raw: None,
         };
@@ -135,9 +213,9 @@ pub fn import_file(
     // 2. CSV / TSV / Texto plano
     let source_id = Uuid::new_v4().to_string();
     let items = if content.contains('\t') && content.lines().count() > 1 {
-        parse_csv_to_items(&content, b'\t', &source_id, &clean_name)
+        parse_csv_to_items(&content, b'\t', &source_id, &clean_name, mapping.as_ref())
     } else if content.contains(',') && content.lines().count() > 1 {
-        parse_csv_to_items(&content, b',', &source_id, &clean_name)
+        parse_csv_to_items(&content, b',', &source_id, &clean_name, mapping.as_ref())
     } else {
         content
             .lines()
@@ -154,6 +232,7 @@ pub fn import_file(
                         title: t.to_string(),
                         subtitle: None,
                         file_size: None,
+                        file_size_bytes: None,
                         link: None,
                         raw: None,
                     })
@@ -344,7 +423,7 @@ pub fn search_items(
             &query,
             filter_link.as_deref(),
             &sort_by,
-            limit.max(1).min(500),
+            limit.clamp(1, 500),
             offset,
         )
         .map_err(|e| format!("Error en búsqueda FTS5: {}", e))
@@ -533,9 +612,9 @@ pub fn update_source_mapping(
                 new_items = normalize_json_to_items(d_val, &id, &clean_name, Some(&mapping));
             }
         } else if raw_content.contains('\t') && raw_content.lines().count() > 1 {
-            new_items = parse_csv_to_items(&raw_content, b'\t', &id, &clean_name);
+            new_items = parse_csv_to_items(&raw_content, b'\t', &id, &clean_name, Some(&mapping));
         } else if raw_content.contains(',') && raw_content.lines().count() > 1 {
-            new_items = parse_csv_to_items(&raw_content, b',', &id, &clean_name);
+            new_items = parse_csv_to_items(&raw_content, b',', &id, &clean_name, Some(&mapping));
         }
     }
 
@@ -1000,4 +1079,175 @@ pub fn extract_direct_stream(
     url: String,
 ) -> crate::adblock::StreamExtractionResult {
     state.adblock.extract_direct_stream(&url)
+}
+
+// ============================================================================
+// Plugin API v1 IPC Commands (`plugin:*`)
+// ============================================================================
+
+#[tauri::command]
+pub fn plugin_fs_read(path: String) -> Result<Vec<u8>, String> {
+    std::fs::read(&path).map_err(|e| format!("Error leyendo bytes de '{}': {}", path, e))
+}
+
+#[tauri::command]
+pub fn plugin_fs_read_text(path: String) -> Result<String, String> {
+    std::fs::read_to_string(&path).map_err(|e| format!("Error leyendo texto de '{}': {}", path, e))
+}
+
+#[tauri::command]
+pub fn plugin_fs_write(
+    path: String,
+    content: Option<String>,
+    bytes: Option<Vec<u8>>,
+) -> Result<(), String> {
+    if let Some(parent) = std::path::Path::new(&path).parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Some(b) = bytes {
+        std::fs::write(&path, b).map_err(|e| format!("Error escribiendo bytes en '{}': {}", path, e))
+    } else if let Some(text) = content {
+        std::fs::write(&path, text).map_err(|e| format!("Error escribiendo texto en '{}': {}", path, e))
+    } else {
+        std::fs::write(&path, []).map_err(|e| format!("Error creando archivo vacío en '{}': {}", path, e))
+    }
+}
+
+#[tauri::command]
+pub fn plugin_fs_mkdir(path: String, recursive: Option<bool>) -> Result<(), String> {
+    if recursive.unwrap_or(true) {
+        std::fs::create_dir_all(&path).map_err(|e| format!("Error creando directorio '{}': {}", path, e))
+    } else {
+        std::fs::create_dir(&path).map_err(|e| format!("Error creando directorio '{}': {}", path, e))
+    }
+}
+
+#[tauri::command]
+pub fn plugin_fs_remove(path: String, recursive: Option<bool>) -> Result<(), String> {
+    let p = std::path::Path::new(&path);
+    if p.is_dir() {
+        if recursive.unwrap_or(false) {
+            std::fs::remove_dir_all(p).map_err(|e| format!("Error eliminando directorio '{}': {}", path, e))
+        } else {
+            std::fs::remove_dir(p).map_err(|e| format!("Error eliminando directorio '{}': {}", path, e))
+        }
+    } else {
+        std::fs::remove_file(p).map_err(|e| format!("Error eliminando archivo '{}': {}", path, e))
+    }
+}
+
+#[tauri::command]
+pub fn plugin_fs_rename(from: String, to: String) -> Result<(), String> {
+    std::fs::rename(&from, &to).map_err(|e| format!("Error renombrando '{}' a '{}': {}", from, to, e))
+}
+
+#[tauri::command]
+pub fn plugin_fs_stat(path: String) -> Result<serde_json::Value, String> {
+    let meta = std::fs::metadata(&path).map_err(|e| format!("Error obteniendo metadata de '{}': {}", path, e))?;
+    let modified = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as u64);
+    let created = meta
+        .created()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as u64);
+
+    Ok(serde_json::json!({
+        "size": meta.len(),
+        "isFile": meta.is_file(),
+        "isDirectory": meta.is_dir(),
+        "isSymlink": meta.is_symlink(),
+        "modified": modified,
+        "created": created,
+    }))
+}
+
+#[tauri::command]
+pub fn plugin_fs_read_dir(path: String, recursive: Option<bool>) -> Result<Vec<FsEntry>, String> {
+    native_fs_read_dir(path, recursive)
+}
+
+#[tauri::command]
+pub async fn plugin_process_exec(
+    cmd: String,
+    args: Option<Vec<String>>,
+    cwd: Option<String>,
+) -> Result<ProcessRunResult, String> {
+    native_spawn_process(cmd, args.unwrap_or_default(), cwd).await
+}
+
+#[tauri::command]
+pub fn plugin_process_env() -> Result<std::collections::HashMap<String, String>, String> {
+    Ok(std::env::vars().collect())
+}
+
+#[tauri::command]
+pub fn plugin_db_query(
+    state: State<'_, AppState>,
+    query: String,
+) -> Result<Vec<serde_json::Value>, String> {
+    state
+        .db
+        .query_raw_json_readonly(&query)
+        .map_err(|e| format!("Error consultando SQLite: {}", e))
+}
+
+#[tauri::command]
+pub fn plugin_db_exec(
+    state: State<'_, AppState>,
+    query: String,
+) -> Result<serde_json::Value, String> {
+    let rows = state
+        .db
+        .execute_raw(&query)
+        .map_err(|e| format!("Error ejecutando SQLite: {}", e))?;
+    Ok(serde_json::json!({ "rowsAffected": rows }))
+}
+
+#[tauri::command]
+pub fn plugin_keychain_get(
+    state: State<'_, AppState>,
+    key: String,
+) -> Result<Option<String>, String> {
+    state.db.keychain_get(&key).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn plugin_keychain_set(
+    state: State<'_, AppState>,
+    key: String,
+    val: String,
+) -> Result<(), String> {
+    state.db.keychain_set(&key, &val).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn plugin_keychain_delete(
+    state: State<'_, AppState>,
+    key: String,
+) -> Result<(), String> {
+    state.db.keychain_delete(&key).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn plugin_window_show(app: AppHandle, label: String) -> Result<(), String> {
+    native_show_window(app, label)
+}
+
+#[tauri::command]
+pub fn plugin_window_hide(app: AppHandle, label: String) -> Result<(), String> {
+    native_hide_window(app, label)
+}
+
+#[tauri::command]
+pub fn plugin_window_close(app: AppHandle, label: String) -> Result<(), String> {
+    native_close_window(app, label)
+}
+
+#[tauri::command]
+pub fn plugin_window_toggle(app: AppHandle, label: String) -> Result<bool, String> {
+    native_toggle_window(app, label)
 }

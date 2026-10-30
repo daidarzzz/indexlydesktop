@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 const TITLE_KEYS: &[&str] = &["title", "titulo", "título", "name", "nombre", "label", "subject", "headline"];
 const LINK_KEYS: &[&str] = &["uris", "uri", "url", "link", "enlace", "magnet", "href", "downloadurl", "download_url"];
-const SIZE_KEYS: &[&str] = &["filesize", "size", "tamaño", "tamano"];
+const SIZE_KEYS: &[&str] = &["filesize", "size", "tamaño", "tamano", "peso", "bytes", "length"];
 
 pub fn is_link_value(s: &str) -> bool {
     let t = s.trim().to_lowercase();
@@ -44,7 +44,7 @@ pub fn parse_v2_envelope(val: &Value, fallback_pkg_slug: &str, fallback_pkg_name
     let mut result = Vec::new();
     let is_multi = sources_arr.len() > 1;
 
-    for (_s_idx, s_val) in sources_arr.iter().enumerate() {
+    for s_val in sources_arr.iter() {
         let s_obj = match s_val.as_object() {
             Some(o) => o,
             None => continue,
@@ -92,15 +92,11 @@ pub fn parse_v2_envelope(val: &Value, fallback_pkg_slug: &str, fallback_pkg_name
 
         // Parse mapping si existe en s_obj["m"] = [titleKey, linkKey?, subtitleKey?]
         let mapping = s_obj.get("m").and_then(|m_val| {
-            if let Some(arr) = m_val.as_array() {
-                Some(MappingConfig {
-                    title_key: arr.first().and_then(|v| v.as_str()).map(|s| s.to_string()),
-                    link_key: arr.get(1).and_then(|v| v.as_str()).map(|s| s.to_string()),
-                    subtitle_key: arr.get(2).and_then(|v| v.as_str()).map(|s| s.to_string()),
-                })
-            } else {
-                None
-            }
+            m_val.as_array().map(|arr| MappingConfig {
+                title_key: arr.first().and_then(|v| v.as_str()).map(|s| s.to_string()),
+                link_key: arr.get(1).and_then(|v| v.as_str()).map(|s| s.to_string()),
+                subtitle_key: arr.get(2).and_then(|v| v.as_str()).map(|s| s.to_string()),
+            })
         });
 
         let source_id = Uuid::new_v4().to_string();
@@ -239,6 +235,8 @@ pub fn parse_tabular_items(
             })
         });
 
+        let file_size_bytes = crate::db::parse_file_size_bytes(file_size.as_deref());
+
         items.push(UnifiedItem {
             id: format!("{}:{}", source_id, row_idx),
             source_id: source_id.to_string(),
@@ -246,6 +244,7 @@ pub fn parse_tabular_items(
             title,
             subtitle,
             file_size,
+            file_size_bytes,
             link,
             raw: None,
         });
@@ -312,19 +311,26 @@ pub fn detect_array(val: &Value) -> Option<(&Vec<Value>, Option<String>)> {
 }
 
 pub fn get_available_keys(val: &Value) -> Vec<String> {
-    if let Some((arr, _)) = detect_array(val) {
-        if let Some(first) = arr.iter().find(|x| x.is_object()) {
-            if let Value::Object(map) = first {
-                return map.keys().cloned().collect();
+    // FIX BUG 7: Si es formato tabular con k
+    if let Value::Object(obj) = val {
+        let k_opt = obj.get("k").or_else(|| obj.get("keys")).and_then(|v| v.as_array());
+        if let Some(k_arr) = k_opt {
+            let cols: Vec<String> = k_arr.iter().filter_map(|k| k.as_str().map(|s| s.to_string())).collect();
+            if !cols.is_empty() {
+                return cols;
             }
+        }
+    }
+
+    if let Some((arr, _)) = detect_array(val) {
+        if let Some(Value::Object(map)) = arr.iter().find(|x| x.is_object()) {
+            return map.keys().cloned().collect();
         }
     }
     if let Value::Object(map) = val {
         // Si es un objeto de objetos (ej: { "ch1": { "name": ..., "url": ... }, "ch2": ... })
-        if let Some(first_inner) = map.values().find(|v| v.is_object()) {
-            if let Value::Object(inner_map) = first_inner {
-                return inner_map.keys().cloned().collect();
-            }
+        if let Some(Value::Object(inner_map)) = map.values().find(|v| v.is_object()) {
+            return inner_map.keys().cloned().collect();
         }
         return map.keys().cloned().collect();
     }
@@ -336,6 +342,36 @@ pub fn get_auto_mapping(val: &Value) -> AutoMappingResult {
     let mut title_key = None;
     let mut link_key = None;
     let mut subtitle_key = None;
+
+    // FIX BUG 7: Detectar formato tabular comprimido { "k": [...], "v": [...] }
+    if let Value::Object(obj) = val {
+        let k_opt = obj.get("k").or_else(|| obj.get("keys")).and_then(|v| v.as_array());
+        let v_opt = obj.get("v").or_else(|| obj.get("values")).and_then(|v| v.as_array());
+        if let (Some(k_arr), Some(v_arr)) = (k_opt, v_opt) {
+            let columns: Vec<String> = k_arr.iter().filter_map(|k| k.as_str().map(|s| s.to_string())).collect();
+            for col in &columns {
+                let lk = col.to_lowercase();
+                if title_key.is_none() && TITLE_KEYS.contains(&lk.as_str()) {
+                    title_key = Some(col.clone());
+                }
+                if link_key.is_none() && LINK_KEYS.contains(&lk.as_str()) {
+                    link_key = Some(col.clone());
+                }
+                if subtitle_key.is_none() && (lk.contains("desc") || lk.contains("category") || lk.contains("genre") || lk.contains("year") || lk.contains("date")) {
+                    subtitle_key = Some(col.clone());
+                }
+            }
+            return AutoMappingResult {
+                available_keys: columns,
+                mapping: MappingConfig {
+                    title_key,
+                    link_key,
+                    subtitle_key,
+                },
+                preview_count: v_arr.len(),
+            };
+        }
+    }
 
     if let Some((arr, _)) = detect_array(val) {
         if let Some(Value::Object(map)) = arr.iter().find(|x| x.is_object()) {
@@ -410,6 +446,16 @@ pub fn normalize_json_to_items(
     source_name: &str,
     mapping: Option<&MappingConfig>,
 ) -> Vec<UnifiedItem> {
+    // FIX BUG 7: Si es un JSON tabular standalone { "k": [...], "v": [...] }
+    if let Value::Object(obj) = val {
+        let k_opt = obj.get("k").or_else(|| obj.get("keys")).and_then(|v| v.as_array());
+        let v_opt = obj.get("v").or_else(|| obj.get("values")).and_then(|v| v.as_array());
+        if let (Some(k_arr), Some(v_arr)) = (k_opt, v_opt) {
+            let columns: Vec<String> = k_arr.iter().filter_map(|k| k.as_str().map(|s| s.to_string())).collect();
+            return parse_tabular_items(&columns, v_arr, source_id, source_name, mapping);
+        }
+    }
+
     let mut items = Vec::new();
     let auto = get_auto_mapping(val);
     let title_k = mapping.and_then(|m| m.title_key.as_deref()).or(auto.mapping.title_key.as_deref());
@@ -465,6 +511,8 @@ pub fn normalize_json_to_items(
                     })
                 });
 
+                let file_size_bytes = crate::db::parse_file_size_bytes(file_size.as_deref());
+
                 items.push(UnifiedItem {
                     id: format!("{}:{}", source_id, idx),
                     source_id: source_id.to_string(),
@@ -472,6 +520,7 @@ pub fn normalize_json_to_items(
                     title,
                     subtitle,
                     file_size,
+                    file_size_bytes,
                     link,
                     raw: Some(item.to_string()),
                 });
@@ -485,6 +534,7 @@ pub fn normalize_json_to_items(
                         title,
                         subtitle: None,
                         file_size: None,
+                        file_size_bytes: None,
                         link: None,
                         raw: None,
                     });
@@ -543,6 +593,8 @@ pub fn normalize_json_to_items(
                         })
                     });
 
+                    let file_size_bytes = crate::db::parse_file_size_bytes(file_size.as_deref());
+
                     items.push(UnifiedItem {
                         id: format!("{}:{}", source_id, idx),
                         source_id: source_id.to_string(),
@@ -550,6 +602,7 @@ pub fn normalize_json_to_items(
                         title,
                         subtitle,
                         file_size,
+                        file_size_bytes,
                         link,
                         raw: Some(item.to_string()),
                     });
@@ -561,7 +614,14 @@ pub fn normalize_json_to_items(
     items
 }
 
-pub fn parse_csv_to_items(content: &str, delimiter: u8, source_id: &str, source_name: &str) -> Vec<UnifiedItem> {
+/// FIX BUG 6: Ingesta de CSV con MappingConfig dinámico para mapear columnas arbitrarias
+pub fn parse_csv_to_items(
+    content: &str,
+    delimiter: u8,
+    source_id: &str,
+    source_name: &str,
+    mapping: Option<&MappingConfig>,
+) -> Vec<UnifiedItem> {
     let mut rdr = csv::ReaderBuilder::new()
         .has_headers(true)
         .delimiter(delimiter)
@@ -573,8 +633,21 @@ pub fn parse_csv_to_items(content: &str, delimiter: u8, source_id: &str, source_
         Err(_) => return Vec::new(),
     };
 
-    let title_idx = headers.iter().position(|h| TITLE_KEYS.contains(&h.to_lowercase().as_str())).unwrap_or(0);
-    let link_idx = headers.iter().position(|h| LINK_KEYS.contains(&h.to_lowercase().as_str()));
+    let title_idx = mapping
+        .and_then(|m| m.title_key.as_deref())
+        .and_then(|tk| headers.iter().position(|h| h.eq_ignore_ascii_case(tk)))
+        .or_else(|| headers.iter().position(|h| TITLE_KEYS.contains(&h.to_lowercase().as_str())))
+        .unwrap_or(0);
+
+    let link_idx = mapping
+        .and_then(|m| m.link_key.as_deref())
+        .and_then(|lk| headers.iter().position(|h| h.eq_ignore_ascii_case(lk)))
+        .or_else(|| headers.iter().position(|h| LINK_KEYS.contains(&h.to_lowercase().as_str())));
+
+    let subtitle_idx = mapping
+        .and_then(|m| m.subtitle_key.as_deref())
+        .and_then(|sk| headers.iter().position(|h| h.eq_ignore_ascii_case(sk)));
+
     let size_idx = headers.iter().position(|h| SIZE_KEYS.contains(&h.to_lowercase().as_str()));
 
     let mut items = Vec::new();
@@ -585,15 +658,18 @@ pub fn parse_csv_to_items(content: &str, delimiter: u8, source_id: &str, source_
                 continue;
             }
             let link = link_idx.and_then(|idx| rec.get(idx)).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+            let subtitle = subtitle_idx.and_then(|idx| rec.get(idx)).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
             let file_size = size_idx.and_then(|idx| rec.get(idx)).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+            let file_size_bytes = crate::db::parse_file_size_bytes(file_size.as_deref());
 
             items.push(UnifiedItem {
                 id: format!("{}:{}", source_id, i),
                 source_id: source_id.to_string(),
                 source_name: source_name.to_string(),
                 title,
-                subtitle: None,
+                subtitle,
                 file_size,
+                file_size_bytes,
                 link,
                 raw: None,
             });
@@ -649,6 +725,51 @@ mod tests {
         assert_eq!(parsed[1].source.name, "FitGirl");
         assert_eq!(parsed[1].items.len(), 1);
         assert_eq!(parsed[1].items[0].title, "Elden Ring");
+    }
+
+    #[test]
+    fn test_csv_with_custom_mapping() {
+        let csv_content = "juego_nombre;enlace_descarga;peso;sinopsis\nDoom Eternal;https://example.com/doom;38 GB;Shooter infernal\nHades 2;https://example.com/hades;4 GB;Roguelike divino";
+        let mapping = MappingConfig {
+            title_key: Some("juego_nombre".to_string()),
+            link_key: Some("enlace_descarga".to_string()),
+            subtitle_key: Some("sinopsis".to_string()),
+        };
+
+        let items = parse_csv_to_items(csv_content, b';', "src_csv", "CSV Source", Some(&mapping));
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].title, "Doom Eternal");
+        assert_eq!(items[0].link.as_deref(), Some("https://example.com/doom"));
+        assert_eq!(items[0].subtitle.as_deref(), Some("Shooter infernal"));
+        assert_eq!(items[0].file_size.as_deref(), Some("38 GB"));
+        assert_eq!(items[0].file_size_bytes, Some(38 * 1024 * 1024 * 1024));
+
+        assert_eq!(items[1].title, "Hades 2");
+        assert_eq!(items[1].file_size_bytes, Some(4 * 1024 * 1024 * 1024));
+    }
+
+    #[test]
+    fn test_standalone_tabular_json() {
+        let tabular_json = json!({
+            "k": ["nombre", "magnet_url", "tamano"],
+            "v": [
+                ["Silksong", "magnet:?xt=urn:btih:silk", "9 GB"],
+                ["Crowsworn", "magnet:?xt=urn:btih:crow", "5 GB"]
+            ]
+        });
+
+        let mapping = MappingConfig {
+            title_key: Some("nombre".to_string()),
+            link_key: Some("magnet_url".to_string()),
+            subtitle_key: None,
+        };
+
+        let items = normalize_json_to_items(&tabular_json, "src_tab", "Tabular Source", Some(&mapping));
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].title, "Silksong");
+        assert_eq!(items[0].link.as_deref(), Some("magnet:?xt=urn:btih:silk"));
+        assert_eq!(items[0].file_size.as_deref(), Some("9 GB"));
+        assert_eq!(items[0].file_size_bytes, Some(9 * 1024 * 1024 * 1024));
     }
 
     #[test]

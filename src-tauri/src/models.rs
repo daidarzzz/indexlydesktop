@@ -9,6 +9,8 @@ pub struct UnifiedItem {
     pub title: String,
     pub subtitle: Option<String>,
     pub file_size: Option<String>,
+    #[serde(default)]
+    pub file_size_bytes: Option<i64>,
     pub link: Option<String>,
     pub raw: Option<String>,
 }
@@ -32,9 +34,13 @@ pub struct SourceMappingInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MappingConfig {
+    #[serde(alias = "title_key")]
     pub title_key: Option<String>,
+    #[serde(alias = "link_key")]
     pub link_key: Option<String>,
+    #[serde(alias = "subtitle_key")]
     pub subtitle_key: Option<String>,
 }
 
