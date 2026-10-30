@@ -85,3 +85,51 @@ export class ValidationError extends IndexlyError {
     this.name = 'ValidationError';
   }
 }
+
+/**
+ * Error disparado cuando una llamada asíncrona tardía intenta resolverse tras la descarga o invalidación de generación.
+ */
+export class ZombifiedPluginError extends IndexlyError {
+  public readonly generationId: number;
+
+  constructor(pluginId: string, generationId: number) {
+    super(
+      `Llamada descartada para plugin '${pluginId}': token de generación ${generationId} obsoleto`,
+      'ERR_PLUGIN_ZOMBIFIED',
+      pluginId
+    );
+    this.name = 'ZombifiedPluginError';
+    this.generationId = generationId;
+  }
+}
+
+/**
+ * Error estructurado cuando un plugin arroja una excepción no controlada dentro de un sandbox safeCall.
+ */
+export class PluginCrashError extends IndexlyError {
+  public readonly phase: string;
+
+  constructor(pluginId: string, phase: string, originalError: Error) {
+    super(
+      `Excepción aislada en plugin '${pluginId}' durante '${phase}': ${originalError?.message || String(originalError)}`,
+      'ERR_PLUGIN_CRASH',
+      pluginId,
+      originalError
+    );
+    this.name = 'PluginCrashError';
+    this.phase = phase;
+  }
+}
+
+/**
+ * Error de control de acceso cuando se intenta invocar una API fuera del namespace permitido.
+ */
+export class AccessDeniedError extends IndexlyError {
+  public readonly resource: string;
+
+  constructor(resource: string) {
+    super(`Acceso denegado al recurso o comando restringido: '${resource}'`, 'ERR_ACCESS_DENIED');
+    this.name = 'AccessDeniedError';
+    this.resource = resource;
+  }
+}

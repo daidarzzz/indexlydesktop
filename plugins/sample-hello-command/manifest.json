@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "com.indexly.sample-hello-command",
+  "name": "Hello Command Sample",
+  "version": "1.0.0",
+  "minHostVersion": "0.1.0",
+  "description": "Plugin de referencia oficial demostrando registro de comandos, Notice, Ribbon, Status Bar e intervalos reversibles.",
+  "author": "IndexLy Team",
+  "authorUrl": "https://github.com/indexly",
+  "license": "MIT",
+  "main": "main.js",
+  "permissions": []
+}

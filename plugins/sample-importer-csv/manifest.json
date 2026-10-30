@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "com.indexly.sample-importer-csv",
+  "name": "CSV Tabular Importer Sample",
+  "version": "1.0.0",
+  "minHostVersion": "0.1.0",
+  "description": "Plugin de referencia oficial demostrando registro de importadores de archivos, parsing tabular, streaming de progreso y uso de app.native.fs.",
+  "author": "IndexLy Team",
+  "authorUrl": "https://github.com/indexly",
+  "license": "MIT",
+  "main": "main.js",
+  "permissions": ["fs:read"]
+}

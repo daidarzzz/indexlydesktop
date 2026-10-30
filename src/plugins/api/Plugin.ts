@@ -126,9 +126,20 @@ export abstract class Plugin extends Component {
    * @param type Identificador único del tipo de vista
    * @param _factory Función fábrica que construye la vista
    */
-  public registerView(type: string, _factory: (leaf: WorkspaceLeaf) => View): void {
-    // Registro interno en el workspace
+  public registerView(type: string, factory: (leaf: WorkspaceLeaf) => View): void {
+    const ws = this.app.workspace as any;
+    if (typeof ws?.registerViewFactory === 'function') {
+      ws.registerViewFactory(type, factory);
+    } else if (typeof ws?.registerViewType === 'function') {
+      ws.registerViewType(type, factory);
+    } else if (typeof ws?.registerView === 'function') {
+      ws.registerView(type, factory);
+    }
+
     this.register(() => {
+      if (typeof ws?.unregisterViewFactory === 'function') {
+        ws.unregisterViewFactory(type);
+      }
       if (this.app.workspace && typeof this.app.workspace.detachLeavesOfType === 'function') {
         this.app.workspace.detachLeavesOfType(type);
       }

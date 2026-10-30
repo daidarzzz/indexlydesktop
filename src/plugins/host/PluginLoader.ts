@@ -3,10 +3,10 @@
  * @description Cargador y evaluador seguro de bundles CommonJS con sandbox de require y directiva de sourcemap virtual.
  */
 
-import { App, PluginManifest } from '../types';
+import { App, PluginManifest, View, ItemView } from '../types';
 import { Plugin } from '../api/Plugin';
 import { Component } from '../api/Component';
-import { Modal, Notice, Setting, PluginSettingTab } from '../api/ui';
+import { Modal, Notice, Setting, PluginSettingTab, Menu, SuggestModal, FuzzySuggestModal } from '../api/ui';
 import {
   IndexlyError,
   PluginLifecycleError,
@@ -14,6 +14,9 @@ import {
   NativeError,
   StorageError,
   ValidationError,
+  ZombifiedPluginError,
+  PluginCrashError,
+  AccessDeniedError,
 } from '../api/errors';
 
 /**
@@ -24,16 +27,24 @@ export function createIndexlyPublicPackage(app: App) {
     app,
     Plugin,
     Component,
+    View,
+    ItemView,
     Modal,
     Notice,
     Setting,
     PluginSettingTab,
+    Menu,
+    SuggestModal,
+    FuzzySuggestModal,
     IndexlyError,
     PluginLifecycleError,
     PluginTimeoutError,
     NativeError,
     StorageError,
     ValidationError,
+    ZombifiedPluginError,
+    PluginCrashError,
+    AccessDeniedError,
   };
 }
 

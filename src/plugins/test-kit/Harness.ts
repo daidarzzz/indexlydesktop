@@ -20,7 +20,7 @@ interface TrackedListener {
  */
 export class TestHarness {
   private _trackedListeners: TrackedListener[] = [];
-  private _activeTimers: Set<number> = new Set();
+  private _activeTimers: Set<any> = new Set();
   private _originalAddEventListener: typeof EventTarget.prototype.addEventListener | null = null;
   private _originalRemoveEventListener: typeof EventTarget.prototype.removeEventListener | null = null;
   private _originalSetInterval: typeof window.setInterval | null = null;
@@ -69,12 +69,12 @@ export class TestHarness {
         return id;
       }) as any;
 
-      window.clearInterval = (id?: number) => {
+      window.clearInterval = ((id?: any) => {
         if (id !== undefined) {
           self._activeTimers.delete(id);
           self._originalClearInterval!(id);
         }
-      };
+      }) as any;
 
       // 3. Espiar setTimeout
       this._originalSetTimeout = window.setTimeout;
@@ -86,12 +86,12 @@ export class TestHarness {
         return id;
       }) as any;
 
-      window.clearTimeout = (id?: number) => {
+      window.clearTimeout = ((id?: any) => {
         if (id !== undefined) {
           self._activeTimers.delete(id);
           self._originalClearTimeout!(id);
         }
-      };
+      }) as any;
     }
   }
 
@@ -150,5 +150,85 @@ export class TestHarness {
 
     this._trackedListeners = [];
     this._activeTimers.clear();
+  }
+}
+
+/**
+ * Harness avanzado para plugins de terceros con inyección de mock y verificación automática de fugas.
+ */
+export class PluginTestHarness extends TestHarness {
+  private _baselineSnapshot: TestSnapshot | null = null;
+  public readonly app: any;
+
+  constructor(customApp?: any) {
+    super();
+    // Instanciar app simulada si no se provee una
+    this.app = customApp;
+  }
+
+  public override install(): void {
+    super.install();
+    this._baselineSnapshot = this.takeSnapshot();
+  }
+
+  /**
+   * Carga e inicializa una instancia de plugin ejecutando su método `onload()`.
+   */
+  public async loadPlugin<T extends { onload: () => void | Promise<void>; onunload: () => void | Promise<void> }>(
+    PluginCls: new (app: any, manifest: any) => T,
+    manifestOverrides?: Record<string, unknown>
+  ): Promise<T> {
+    const manifest = {
+      schemaVersion: 1,
+      id: (manifestOverrides?.id as string) || 'com.test.sample-plugin',
+      name: (manifestOverrides?.name as string) || 'Sample Plugin',
+      version: (manifestOverrides?.version as string) || '1.0.0',
+      minHostVersion: '0.1.0',
+      description: 'Plugin para verificación en harness',
+      author: 'Test Runner',
+      license: 'MIT',
+      main: 'main.js',
+      ...manifestOverrides,
+    };
+
+    const plugin = new PluginCls(this.app, manifest);
+    await plugin.onload();
+    return plugin;
+  }
+
+  /**
+   * Carga e instancia un plugin a partir de su código fuente CommonJS evaluado con el loader del host.
+   */
+  public async loadPluginFromCode(code: string, manifest: any): Promise<any> {
+    const { pluginLoader } = await import('../host/PluginLoader');
+    const instance = pluginLoader.loadPluginInstance(code, manifest, this.app);
+    await instance.onload();
+    return instance;
+  }
+
+  /**
+   * Descarga el plugin ejecutando su método `onunload()` y purgando sus `_disposables` registrados.
+   */
+  public async unloadPlugin<T extends { onunload: () => void | Promise<void>; unload?: () => void | Promise<void> }>(plugin: T): Promise<void> {
+    await plugin.onunload();
+    if (typeof plugin.unload === 'function') {
+      await plugin.unload();
+    }
+  }
+
+  /**
+   * Valida que no existan listeners, temporizadores ni nodos residuales en comparación con la línea base.
+   */
+  public expectNoLeaks(): { passed: boolean; leakedListeners: number; leakedTimers: number; leakedElements: number } {
+    if (!this._baselineSnapshot) {
+      throw new Error('PluginTestHarness debe instalarse mediante install() antes de invocar expectNoLeaks()');
+    }
+    const cleanResult = this.verifyClean(this._baselineSnapshot);
+    return {
+      passed: cleanResult.clean,
+      leakedListeners: cleanResult.leakedListeners,
+      leakedTimers: cleanResult.leakedTimers,
+      leakedElements: cleanResult.leakedElements,
+    };
   }
 }

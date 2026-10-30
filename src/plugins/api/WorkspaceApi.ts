@@ -118,7 +118,14 @@ export class HostWorkspaceApi implements WorkspaceApi {
   }
 
   public getLeaf(type?: string): WorkspaceLeaf {
-    // Si se especifica un tipo y existe una fábrica registrada, instanciarla
+    if (type) {
+      const existing = this._leaves.find((l) => l.view && l.view.getViewType() === type);
+      if (existing) {
+        return existing;
+      }
+    }
+
+    // Si no existe, instanciar una nueva hoja y su vista
     const leafId = `leaf_${this._nextLeafId++}_${Date.now()}`;
     const leaf = new HostWorkspaceLeaf(leafId, (l) => {
       this._leaves = this._leaves.filter((item) => item !== l);
@@ -128,6 +135,7 @@ export class HostWorkspaceApi implements WorkspaceApi {
     if (type && this._viewFactories.has(type)) {
       const factory = this._viewFactories.get(type)!;
       const view = factory(leaf);
+      leaf.view = view;
       leaf.open(view).catch((err) => {
         console.error(`[WorkspaceApi] Error abriendo vista de tipo '${type}':`, err);
       });
@@ -139,7 +147,7 @@ export class HostWorkspaceApi implements WorkspaceApi {
   }
 
   public revealLeaf(leaf: WorkspaceLeaf): void {
-    if (leaf.view?.containerEl) {
+    if (leaf.view?.containerEl && typeof leaf.view.containerEl.scrollIntoView === 'function') {
       leaf.view.containerEl.scrollIntoView({ behavior: 'smooth' });
     }
   }

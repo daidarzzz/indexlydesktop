@@ -41,10 +41,7 @@ export class Notice {
       window.clearTimeout(this._timer);
       this._timer = null;
     }
-    this.noticeEl.classList.add('fading-out');
-    setTimeout(() => {
-      this.noticeEl.remove();
-    }, 200);
+    this.noticeEl.remove();
   }
 }
 

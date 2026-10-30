@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "com.indexly.sample-custom-view-react",
+  "name": "Analytics Reader View",
+  "version": "1.0.0",
+  "minHostVersion": "0.1.0",
+  "description": "Plugin de referencia oficial para vistas personalizadas de Workspace, integración de DOM, estilos CSS y suscripción reactiva a eventos.",
+  "author": "IndexLy Team",
+  "authorUrl": "https://github.com/indexly",
+  "license": "MIT",
+  "main": "main.js",
+  "styles": "style.css",
+  "permissions": ["workspace.views"]
+}

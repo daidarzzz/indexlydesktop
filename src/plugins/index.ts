@@ -30,5 +30,5 @@ export * from './host/PluginHost';
 // Adaptador legacy
 export * from './legacy/LegacyAdapter';
 
-// Test harness
-export * from './test-kit/Harness';
+// Test harness & Mock test kit
+export * from './test-kit';
