@@ -1,10 +1,10 @@
-// src/components/__tests__/DocsModal.test.tsx — Pruebas unitarias del modal de documentación
+// src/components/__tests__/DocsModal.test.tsx — Pruebas unitarias de la vista de documentación (DocsView / DocsModal)
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import React from 'react';
+import { DocsView } from '../DocsView';
 import { DocsModal } from '../DocsModal';
 
-describe('DocsModal Component', () => {
+describe('DocsView (Pestaña de Documentación)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     Object.assign(navigator, {
@@ -14,16 +14,11 @@ describe('DocsModal Component', () => {
     });
   });
 
-  it('no renderiza nada cuando isOpen es false', () => {
-    const { container } = render(<DocsModal isOpen={false} onClose={vi.fn()} />);
-    expect(container.firstChild).toBeNull();
-  });
+  it('renderiza la cabecera, sidebar y sección inicial de la pestaña', () => {
+    render(<DocsView onClose={vi.fn()} />);
 
-  it('renderiza la cabecera, sidebar y sección inicial cuando isOpen es true', () => {
-    render(<DocsModal isOpen={true} onClose={vi.fn()} />);
-
-    expect(screen.getByText('Documentación de IndexLy')).toBeDefined();
-    expect(screen.getByText('v2.0 Native')).toBeDefined();
+    expect(screen.getByText('Documentación Técnica')).toBeDefined();
+    expect(screen.getAllByText(/IndexLy Platform v2.0/i).length).toBeGreaterThan(0);
     expect(screen.getByText('Arquitectura & Visión')).toBeDefined();
     expect(screen.getByText('Modelo de Confianza')).toBeDefined();
     expect(screen.getByText('Ciclo de Vida & Plugin Base')).toBeDefined();
@@ -36,7 +31,7 @@ describe('DocsModal Component', () => {
   });
 
   it('permite cambiar de sección al hacer click en un elemento del sidebar', () => {
-    render(<DocsModal isOpen={true} onClose={vi.fn()} />);
+    render(<DocsView onClose={vi.fn()} />);
 
     // Por defecto está en 'overview'
     expect(screen.getByText('Arquitectura del Sistema')).toBeDefined();
@@ -50,7 +45,7 @@ describe('DocsModal Component', () => {
   });
 
   it('filtra las secciones dinámicamente según la búsqueda', () => {
-    render(<DocsModal isOpen={true} onClose={vi.fn()} />);
+    render(<DocsView onClose={vi.fn()} />);
 
     const searchInput = screen.getByPlaceholderText('Filtrar temas, APIs o código...');
     fireEvent.change(searchInput, { target: { value: 'sqlite' } });
@@ -64,18 +59,18 @@ describe('DocsModal Component', () => {
     expect(screen.getByText(/No se encontraron secciones/i)).toBeDefined();
   });
 
-  it('invoca onClose al presionar el botón de cerrar', () => {
+  it('invoca onClose al presionar el botón de volver al buscador', () => {
     const handleClose = vi.fn();
-    render(<DocsModal isOpen={true} onClose={handleClose} />);
+    render(<DocsView onClose={handleClose} />);
 
-    const closeBtn = screen.getByTitle('Cerrar documentación (Esc)');
-    fireEvent.click(closeBtn);
+    const backBtn = screen.getByTitle('Volver a la vista del buscador');
+    fireEvent.click(backBtn);
 
     expect(handleClose).toHaveBeenCalledTimes(1);
   });
 
   it('copia código al portapapeles al pulsar el botón Copiar', () => {
-    render(<DocsModal isOpen={true} onClose={vi.fn()} />);
+    render(<DocsView onClose={vi.fn()} />);
 
     // Cambiar a Ciclo de Vida que tiene botón de copiar
     const lifecycleBtn = screen.getByText('Ciclo de Vida & Plugin Base');
@@ -85,5 +80,14 @@ describe('DocsModal Component', () => {
     fireEvent.click(copyBtn);
 
     expect(navigator.clipboard.writeText).toHaveBeenCalled();
+  });
+
+  it('DocsModal wrapper no renderiza nada cuando isOpen es false y renderiza cuando es true', () => {
+    const { container } = render(<DocsModal isOpen={false} onClose={vi.fn()} />);
+    expect(container.firstChild).toBeNull();
+
+    const { unmount } = render(<DocsModal isOpen={true} onClose={vi.fn()} />);
+    expect(screen.getByText('Documentación Técnica')).toBeDefined();
+    unmount();
   });
 });

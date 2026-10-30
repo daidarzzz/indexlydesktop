@@ -8,6 +8,7 @@ interface HeaderProps {
   hubToken: string | null;
   onOpenHubModal: () => void;
   onOpenDocs: () => void;
+  isDocsActive?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -16,6 +17,7 @@ export const Header: React.FC<HeaderProps> = ({
   hubToken,
   onOpenHubModal,
   onOpenDocs,
+  isDocsActive = false,
 }) => {
   return (
     <header className="site-header">
@@ -57,7 +59,7 @@ export const Header: React.FC<HeaderProps> = ({
 
           <button
             type="button"
-            className="nav-btn"
+            className={`nav-btn ${isDocsActive ? 'active' : ''}`}
             onClick={onOpenDocs}
             title="Documentación técnica y guías de IndexLy"
           >
@@ -70,6 +72,7 @@ export const Header: React.FC<HeaderProps> = ({
             target="_blank"
             rel="noopener noreferrer"
             className="nav-btn"
+            title="Ver repositorio en GitHub"
           >
             <span>GitHub</span>
             <ExternalLink size={12} />

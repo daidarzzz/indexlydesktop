@@ -1,6 +1,7 @@
 // src/App.tsx — Aplicación principal IndexLy Desktop
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { Search, BookOpen } from 'lucide-react';
 import { Header } from './components/Header';
 import { SourceManager } from './components/SourceManager';
 import { SearchBar } from './components/SearchBar';
@@ -8,7 +9,7 @@ import { Controls } from './components/Controls';
 import { ResultsView } from './components/ResultsView';
 import { PluginModal } from './components/PluginModal';
 import { HubConnectModal } from './components/HubConnectModal';
-import { DocsModal } from './components/DocsModal';
+import { DocsView } from './components/DocsView';
 import { pluginRegistry, SectionDefinition } from './plugins/PluginRegistry';
 import { LoadedPlugin, SearchResult, Source, ToastItem } from './types';
 
@@ -19,7 +20,6 @@ export function App() {
   const [plugins, setPlugins] = useState<LoadedPlugin[]>([]);
   const [isPluginModalOpen, setIsPluginModalOpen] = useState(false);
   const [isHubModalOpen, setIsHubModalOpen] = useState(false);
-  const [isDocsModalOpen, setIsDocsModalOpen] = useState(false);
 
   useEffect(() => {
     if (isSpotlightWindow) {
@@ -131,6 +131,8 @@ export function App() {
         const modalEl = document.getElementById('plugin-modal');
         if (modalEl && modalEl.style.display !== 'none') {
           (window as any).closePluginModal();
+        } else if (activeSectionId === '__docs__') {
+          setActiveSectionId(null);
         }
       }
     };
@@ -410,33 +412,49 @@ export function App() {
         pluginsCount={plugins.filter((p) => p.manifest.enabled).length}
         hubToken={hubToken}
         onOpenHubModal={() => setIsHubModalOpen(true)}
-        onOpenDocs={() => setIsDocsModalOpen(true)}
+        onOpenDocs={() => setActiveSectionId((curr) => (curr === '__docs__' ? null : '__docs__'))}
+        isDocsActive={activeSectionId === '__docs__'}
       />
 
       <main className={`Search ${activeSectionId ? 'section-open' : ''}`}>
-        {/* Tabbar de secciones registradas por plugins (p. ej. ReadLy / OpenDoc) */}
-        {sections.length > 0 && (
-          <div id="plugin-tabbar" className="plugin-tabbar" role="group" aria-label="Secciones de plugins">
+        {/* Tabbar de secciones principales y plugins */}
+        <div id="plugin-tabbar" className="plugin-tabbar" role="group" aria-label="Navegación principal">
+          <button
+            type="button"
+            className={`plx-tab ${!activeSectionId ? 'active' : ''}`}
+            aria-pressed={!activeSectionId}
+            onClick={() => setActiveSectionId(null)}
+          >
+            <Search size={13} style={{ marginRight: '6px', verticalAlign: '-1px' }} />
+            <span>Buscador</span>
+          </button>
+
+          <button
+            type="button"
+            className={`plx-tab ${activeSectionId === '__docs__' ? 'active' : ''}`}
+            aria-pressed={activeSectionId === '__docs__'}
+            onClick={() => setActiveSectionId('__docs__')}
+          >
+            <BookOpen size={13} style={{ marginRight: '6px', verticalAlign: '-1px' }} />
+            <span>Documentación</span>
+          </button>
+
+          {sections.map((sec) => (
             <button
+              key={sec.id}
               type="button"
-              className={`plx-tab ${!activeSectionId ? 'active' : ''}`}
-              aria-pressed={!activeSectionId}
-              onClick={() => setActiveSectionId(null)}
+              className={`plx-tab ${activeSectionId === sec.id ? 'active' : ''}`}
+              aria-pressed={activeSectionId === sec.id}
+              onClick={() => setActiveSectionId(sec.id)}
             >
-              Buscador
+              {sec.label}
             </button>
-            {sections.map((sec) => (
-              <button
-                key={sec.id}
-                type="button"
-                className={`plx-tab ${activeSectionId === sec.id ? 'active' : ''}`}
-                aria-pressed={activeSectionId === sec.id}
-                onClick={() => setActiveSectionId(sec.id)}
-              >
-                {sec.label}
-              </button>
-            ))}
-          </div>
+          ))}
+        </div>
+
+        {/* Vista integrada de Documentación (Pestaña) */}
+        {activeSectionId === '__docs__' && (
+          <DocsView onClose={() => setActiveSectionId(null)} />
         )}
 
         <SourceManager
@@ -458,7 +476,7 @@ export function App() {
         <div
           id="plugin-sections"
           className="plugin-sections"
-          style={{ display: activeSectionId ? 'block' : 'none' }}
+          style={{ display: activeSectionId && activeSectionId !== '__docs__' ? 'block' : 'none' }}
           aria-live="polite"
         >
           <div className="plx-section-head">
@@ -539,11 +557,6 @@ export function App() {
         token={hubToken}
         onSaveToken={handleSaveHubToken}
         onDisconnect={handleDisconnectHub}
-      />
-
-      <DocsModal
-        isOpen={isDocsModalOpen}
-        onClose={() => setIsDocsModalOpen(false)}
       />
 
       {toasts.length > 0 && (
