@@ -8,6 +8,7 @@ import { Plugin } from '../api/Plugin';
 import { createAppInstance } from '../api/App';
 import { HostEventsApi } from '../api/EventsApi';
 import { HostCommandsApi } from '../api/CommandsApi';
+import { HostWorkspaceApi } from '../api/WorkspaceApi';
 import { pluginLoader } from './PluginLoader';
 import { generationManager } from './generation';
 import { safeCallManager } from './SafeCall';
@@ -37,11 +38,14 @@ export class PluginHost {
   public readonly sharedEvents: HostEventsApi = new HostEventsApi();
   /** Instancia compartida de comandos */
   public readonly sharedCommands: HostCommandsApi = new HostCommandsApi();
+  /** Instancia compartida del workspace */
+  public readonly sharedWorkspace: HostWorkspaceApi;
   /** App raíz del host */
   public readonly app: App;
 
   constructor() {
-    this.app = createAppInstance('host', this.sharedEvents, this.sharedCommands);
+    this.sharedWorkspace = new HostWorkspaceApi(this.sharedEvents);
+    this.app = createAppInstance('host', this.sharedEvents, this.sharedCommands, this.sharedWorkspace);
 
     // Escuchar cuando un plugin supera el límite de fallos
     safeCallManager.onThresholdExceeded((pluginId, errorCount) => {
@@ -102,7 +106,7 @@ export class PluginHost {
     entry.lastError = undefined;
 
     // 4. Instanciar el plugin mediante el loader CJS
-    const scopedApp = createAppInstance(id, this.sharedEvents, this.sharedCommands);
+    const scopedApp = createAppInstance(id, this.sharedEvents, this.sharedCommands, this.sharedWorkspace);
     let instance: Plugin;
 
     try {

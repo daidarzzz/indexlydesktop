@@ -7,18 +7,18 @@ import {
   App,
   FeatureSet,
   HubApi,
-  ImporterApi,
   LegacyApi,
-  LibraryApi,
   NativeApi,
-  SearchApi,
-  SettingsApi,
   UiApi,
-  WorkspaceApi,
 } from '../types';
 import { HostEventsApi } from './EventsApi';
 import { HostCommandsApi } from './CommandsApi';
 import { ScopedStorageApi } from './StorageApi';
+import { HostLibraryApi } from './LibraryApi';
+import { HostSearchApi } from './SearchApi';
+import { HostWorkspaceApi } from './WorkspaceApi';
+import { HostSettingsApi } from './SettingsApi';
+import { HostImporterApi } from './ImporterApi';
 import { NativeError } from './errors';
 
 /**
@@ -237,115 +237,20 @@ export function createPublicNativeApi(): NativeApi {
 export function createAppInstance(
   pluginId: string = 'host',
   sharedEvents?: HostEventsApi,
-  sharedCommands?: HostCommandsApi
+  sharedCommands?: HostCommandsApi,
+  sharedWorkspace?: HostWorkspaceApi
 ): App {
   const events = sharedEvents || new HostEventsApi();
   const commands = sharedCommands || new HostCommandsApi();
+  const workspace = sharedWorkspace || new HostWorkspaceApi(events);
   const storage = new ScopedStorageApi(pluginId);
   const features = new HostFeatureSet();
   const native = createPublicNativeApi();
 
-  const library: LibraryApi = {
-    async getSources() {
-      return [];
-    },
-    async getSource() {
-      return null;
-    },
-    async addSource(input) {
-      return { id: 'new-src', name: input.name, active: true, count: 0 };
-    },
-    async updateSource(id, patch) {
-      return { id, name: patch.name || 'src', active: true, count: 0, ...patch };
-    },
-    async removeSource() {},
-    async getItems() {
-      return [];
-    },
-    async getItem() {
-      return null;
-    },
-    on(event, cb) {
-      return events.on(`library:${event}`, cb);
-    },
-  };
-
-  const search: SearchApi = {
-    async query() {
-      return { items: [], total: 0, active_sources_count: 0, total_items_count: 0, took_ms: 0 };
-    },
-    async *queryStream() {},
-    registerProvider() {},
-    unregisterProvider() {},
-    async reindex() {},
-    on(event, cb) {
-      return events.on(`search:${event}`, cb as (data: any) => void);
-    },
-  };
-
-  const workspace: WorkspaceApi = {
-    getActiveWindow() {
-      return { id: 'main', label: 'main', title: 'IndexLy', visible: true, focused: true };
-    },
-    getWindows() {
-      return [];
-    },
-    getLeaves() {
-      return [];
-    },
-    getLeaf() {
-      return {
-        id: 'leaf-1',
-        view: null,
-        async open() {},
-        detach() {},
-      };
-    },
-    revealLeaf() {},
-    detachLeavesOfType() {},
-    onLayoutReady(cb) {
-      cb();
-    },
-    async openSpotlight() {},
-    on(event, cb) {
-      return events.on(`workspace:${event}`, cb);
-    },
-  };
-
-  const settings: SettingsApi = {
-    registerSection() {},
-    registerTab() {},
-    async get<T>(key: string, defaultValue?: T) {
-      const v = await storage.readJson<T>(`setting_${key}`);
-      return v !== null ? v : (defaultValue as T);
-    },
-    async set(key: string, value: unknown) {
-      await storage.writeJson(`setting_${key}`, value);
-      events.emit(`settings:${pluginId}:change`, { key, value });
-    },
-    onChange(keyOrCb, cb) {
-      if (typeof keyOrCb === 'function') {
-        return events.on(`settings:${pluginId}:change`, (payload: any) => {
-          keyOrCb(payload?.key, payload?.value);
-        });
-      }
-      return events.on(`settings:${pluginId}:change`, (data: any) => {
-        if (data && data.key === keyOrCb && cb) cb(data.value);
-      });
-    },
-  };
-
-  const importer: ImporterApi = {
-    registerImporter(imp) {
-      return events.on(`importer:${imp.id}`, () => {});
-    },
-    async importFile() {
-      return [];
-    },
-    on(event, cb) {
-      return events.on(`importer:${event}`, cb as (data: any) => void);
-    },
-  };
+  const library = new HostLibraryApi(events);
+  const search = new HostSearchApi(events);
+  const settings = new HostSettingsApi(pluginId, events, storage);
+  const importer = new HostImporterApi(events);
 
   const hub: HubApi = {
     async search() {

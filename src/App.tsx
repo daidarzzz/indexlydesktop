@@ -184,10 +184,21 @@ export function App() {
     };
   }, [loadSources]);
 
-  // Ejecutar búsqueda en SQLite FTS5 vía Rust con soporte de Pipeline Middleware
+  // Referencia al controlador de cancelación de búsqueda en vuelo (Solución a Bug 1)
+  const searchAbortControllerRef = useRef<AbortController | null>(null);
+
+  // Ejecutar búsqueda en SQLite FTS5 vía Rust con soporte de Pipeline Middleware y cancelación cooperativa
   const executeSearch = useCallback(
-    async (q: string, fl: string | null, sb: string, currentOffset: number = 0, append: boolean = false) => {
+    async (
+      q: string,
+      fl: string | null,
+      sb: string,
+      currentOffset: number = 0,
+      append: boolean = false,
+      signal?: AbortSignal
+    ) => {
       try {
+        if (signal?.aborted) return;
         pluginRegistry.setQuery(q);
         const queryCtx = await pluginRegistry.runPipeline('search:query', {
           query: q,
@@ -197,6 +208,8 @@ export function App() {
           offset: currentOffset,
         });
 
+        if (signal?.aborted) return;
+
         let res = await invoke<SearchResult>('search_items', {
           query: queryCtx.query,
           filterLink: queryCtx.filterLink,
@@ -205,10 +218,14 @@ export function App() {
           offset: queryCtx.offset,
         });
 
+        if (signal?.aborted) return;
+
         res = await pluginRegistry.runPipeline('search:results', {
           ...res,
           query: queryCtx.query,
         });
+
+        if (signal?.aborted) return;
 
         if (append) {
           setSearchResult((prev) => ({
@@ -218,26 +235,39 @@ export function App() {
         } else {
           setSearchResult(res);
         }
-      } catch (err) {
+      } catch (err: any) {
+        if (err?.name === 'AbortError' || signal?.aborted) {
+          return;
+        }
         console.error('Error en búsqueda:', err);
       }
     },
     [limit]
   );
 
-  // Búsqueda con debounce al cambiar query / filtros
+  // Búsqueda con debounce cancelable (100 ms) y AbortController (Solución a Bug 1)
   const searchTimeoutRef = useRef<number | null>(null);
   useEffect(() => {
+    // 1. Cancelar cualquier timeout previo
     if (searchTimeoutRef.current) {
       window.clearTimeout(searchTimeoutRef.current);
     }
+
+    // 2. Abortar cualquier petición en vuelo anterior
+    if (searchAbortControllerRef.current) {
+      searchAbortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    searchAbortControllerRef.current = controller;
+
     searchTimeoutRef.current = window.setTimeout(() => {
       setOffset(0);
-      executeSearch(query, filterLink, sortBy, 0, false);
-    }, 25);
+      executeSearch(query, filterLink, sortBy, 0, false, controller.signal);
+    }, 100);
 
     return () => {
       if (searchTimeoutRef.current) window.clearTimeout(searchTimeoutRef.current);
+      controller.abort();
     };
   }, [query, filterLink, sortBy, executeSearch]);
 

@@ -1,6 +1,6 @@
 /**
  * @file src/plugins/api/ui.ts
- * @description Clases base y componentes estándar de UI para extensiones de IndexLy (`Modal`, `Notice`, `Setting`, `PluginSettingTab`).
+ * @description Clases base y componentes estándar de UI para extensiones de IndexLy (`Modal`, `Notice`, `Setting`, `PluginSettingTab`, `Menu`, `SuggestModal`, `FuzzySuggestModal`).
  */
 
 import { App } from '../types';
@@ -290,5 +290,175 @@ export class Setting {
     this.controlEl.appendChild(button);
     cb(component);
     return this;
+  }
+}
+
+/**
+ * Menú contextual emergente flotante.
+ */
+export class Menu {
+  public menuEl: HTMLElement;
+  private _items: Array<{ title: string; icon?: string; onClick: () => void }> = [];
+  private _outsideListener: ((e: MouseEvent) => void) | null = null;
+
+  constructor() {
+    this.menuEl = document.createElement('div');
+    this.menuEl.className = 'indexly-context-menu';
+    this.menuEl.style.position = 'fixed';
+    this.menuEl.style.display = 'none';
+    this.menuEl.style.zIndex = '9999';
+  }
+
+  public addItem(cb: (item: { setTitle: (t: string) => void; setIcon: (i: string) => void; onClick: (fn: () => void) => void }) => unknown): this {
+    let title = '';
+    let icon: string | undefined = undefined;
+    let onClick = () => {};
+
+    const itemHelper = {
+      setTitle: (t: string) => {
+        title = t;
+      },
+      setIcon: (i: string) => {
+        icon = i;
+      },
+      onClick: (fn: () => void) => {
+        onClick = fn;
+      },
+    };
+    cb(itemHelper);
+    this._items.push({ title, icon, onClick });
+    return this;
+  }
+
+  public addSeparator(): this {
+    this._items.push({ title: '---', onClick: () => {} });
+    return this;
+  }
+
+  public showAtPosition(pos: { x: number; y: number }): void {
+    this.menuEl.replaceChildren();
+
+    for (const item of this._items) {
+      if (item.title === '---') {
+        const sep = document.createElement('hr');
+        sep.className = 'indexly-menu-separator';
+        this.menuEl.appendChild(sep);
+        continue;
+      }
+
+      const row = document.createElement('div');
+      row.className = 'indexly-menu-item';
+      if (item.icon) {
+        const ic = document.createElement('span');
+        ic.className = `indexly-icon icon-${item.icon}`;
+        row.appendChild(ic);
+      }
+      const label = document.createElement('span');
+      label.textContent = item.title;
+      row.appendChild(label);
+
+      row.onclick = () => {
+        this.hide();
+        item.onClick();
+      };
+      this.menuEl.appendChild(row);
+    }
+
+    this.menuEl.style.left = `${pos.x}px`;
+    this.menuEl.style.top = `${pos.y}px`;
+    this.menuEl.style.display = 'block';
+
+    if (!document.body.contains(this.menuEl)) {
+      document.body.appendChild(this.menuEl);
+    }
+
+    this._outsideListener = (e: MouseEvent) => {
+      if (!this.menuEl.contains(e.target as Node)) {
+        this.hide();
+      }
+    };
+    window.addEventListener('click', this._outsideListener, { capture: true, once: true });
+  }
+
+  public showAtMouseEvent(ev: MouseEvent): void {
+    ev.preventDefault();
+    this.showAtPosition({ x: ev.clientX, y: ev.clientY });
+  }
+
+  public hide(): void {
+    this.menuEl.style.display = 'none';
+    this.menuEl.remove();
+  }
+}
+
+/**
+ * Modal interactivo de sugerencias y búsqueda difusa.
+ */
+export abstract class SuggestModal<T> extends Modal {
+  public inputEl: HTMLInputElement;
+  public suggestionsEl: HTMLElement;
+
+  constructor(app: App) {
+    super(app);
+    this.inputEl = document.createElement('input');
+    this.inputEl.className = 'indexly-suggest-input';
+    this.inputEl.placeholder = 'Escriba para filtrar...';
+
+    this.suggestionsEl = document.createElement('div');
+    this.suggestionsEl.className = 'indexly-suggestions-list';
+
+    this.inputEl.oninput = () => {
+      this.updateSuggestions();
+    };
+  }
+
+  onOpen(): void {
+    this.contentEl.replaceChildren();
+    this.contentEl.appendChild(this.inputEl);
+    this.contentEl.appendChild(this.suggestionsEl);
+    this.inputEl.focus();
+    this.updateSuggestions();
+  }
+
+  onClose(): void {
+    this.inputEl.value = '';
+    this.suggestionsEl.replaceChildren();
+  }
+
+  private async updateSuggestions(): Promise<void> {
+    const q = this.inputEl.value;
+    const items = await this.getSuggestions(q);
+    this.suggestionsEl.replaceChildren();
+
+    for (const item of items) {
+      const itemEl = document.createElement('div');
+      itemEl.className = 'indexly-suggestion-item';
+      this.renderSuggestion(item, itemEl);
+
+      itemEl.onclick = (e) => {
+        this.close();
+        this.onChooseSuggestion(item, e);
+      };
+      this.suggestionsEl.appendChild(itemEl);
+    }
+  }
+
+  abstract getSuggestions(query: string): T[] | Promise<T[]>;
+  abstract renderSuggestion(item: T, el: HTMLElement): void;
+  abstract onChooseSuggestion(item: T, evt: MouseEvent | KeyboardEvent): void;
+}
+
+/**
+ * Selector modal basado en comparación difusa de cadenas.
+ */
+export abstract class FuzzySuggestModal<T> extends SuggestModal<T> {
+  abstract getItems(): T[];
+  abstract getItemText(item: T): string;
+
+  getSuggestions(query: string): T[] {
+    const q = query.toLowerCase().trim();
+    const items = this.getItems();
+    if (!q) return items;
+    return items.filter((item) => this.getItemText(item).toLowerCase().includes(q));
   }
 }
