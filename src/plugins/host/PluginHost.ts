@@ -35,17 +35,23 @@ export class PluginHost {
   /** Mapa privado de plugins registrados en el sistema */
   private _plugins: Map<string, PluginRegistryEntry> = new Map();
   /** Instancia compartida de eventos */
-  public readonly sharedEvents: HostEventsApi = new HostEventsApi();
+  public readonly sharedEvents: HostEventsApi;
   /** Instancia compartida de comandos */
-  public readonly sharedCommands: HostCommandsApi = new HostCommandsApi();
+  public readonly sharedCommands: HostCommandsApi;
   /** Instancia compartida del workspace */
   public readonly sharedWorkspace: HostWorkspaceApi;
   /** App raíz del host */
   public readonly app: App;
 
-  constructor() {
-    this.sharedWorkspace = new HostWorkspaceApi(this.sharedEvents);
-    this.app = createAppInstance('host', this.sharedEvents, this.sharedCommands, this.sharedWorkspace);
+  constructor(
+    sharedEvents?: HostEventsApi,
+    sharedCommands?: HostCommandsApi,
+    sharedWorkspace?: HostWorkspaceApi
+  ) {
+    this.sharedEvents = sharedEvents || new HostEventsApi();
+    this.sharedCommands = sharedCommands || new HostCommandsApi();
+    this.sharedWorkspace = sharedWorkspace || new HostWorkspaceApi(this.sharedEvents);
+    this.app = createAppInstance('host', this.sharedEvents, this.sharedCommands, this.sharedWorkspace, this);
 
     // Escuchar cuando un plugin supera el límite de fallos
     safeCallManager.onThresholdExceeded((pluginId, errorCount) => {
@@ -106,7 +112,7 @@ export class PluginHost {
     entry.lastError = undefined;
 
     // 4. Instanciar el plugin mediante el loader CJS
-    const scopedApp = createAppInstance(id, this.sharedEvents, this.sharedCommands, this.sharedWorkspace);
+    const scopedApp = createAppInstance(id, this.sharedEvents, this.sharedCommands, this.sharedWorkspace, this);
     let instance: Plugin;
 
     try {

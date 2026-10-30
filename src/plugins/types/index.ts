@@ -205,6 +205,9 @@ export interface PluginManifest {
     settings?: Array<{ key: string; title: string; type: string; default?: unknown }>;
   };
   enabled?: boolean;
+  entry_ui?: string;
+  entry_backend?: string;
+  settings?: any[];
 }
 
 export interface LoadedPluginInfo {

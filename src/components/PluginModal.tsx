@@ -2,10 +2,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { LoadedPlugin, PluginSettingSchema } from '../types';
 import { pluginRegistry } from '../plugins/PluginRegistry';
+import { safeModeManager } from '../plugins/host/SafeMode';
 import {
   X,
   Puzzle,
   ShieldCheck,
+  ShieldAlert,
   Check,
   RefreshCw,
   Settings2,
@@ -30,6 +32,11 @@ export const PluginModal: React.FC<PluginModalProps> = ({
   const initialStatesRef = useRef<Record<string, boolean>>({});
   const wasOpenRef = useRef(false);
   const [hasChanges, setHasChanges] = useState(false);
+
+  // Estados de seguridad: Modo Restringido y Modo Seguro
+  const [isRestricted, setIsRestricted] = useState(safeModeManager.isRestrictedModeActive);
+  const [isSafe, setIsSafe] = useState(safeModeManager.isSafeModeActive);
+  const [reloadingId, setReloadingId] = useState<string | null>(null);
 
   // Plugin seleccionado para ver sus ajustes
   const [selectedPlugin, setSelectedPlugin] = useState<LoadedPlugin | null>(null);
@@ -452,6 +459,86 @@ export const PluginModal: React.FC<PluginModalProps> = ({
                 filtros personalizados.
               </p>
 
+              {/* Alerta de Modo Seguro */}
+              {isSafe && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '10px 14px',
+                    marginBottom: '14px',
+                    background: 'rgba(239, 68, 68, 0.1)',
+                    border: '1px solid rgba(239, 68, 68, 0.3)',
+                    borderRadius: '8px',
+                    color: '#ef4444',
+                    fontSize: '12px',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <ShieldAlert size={16} />
+                    <span><strong>Modo Seguro Activo:</strong> Se detectaron cierres inesperados previos. Extensiones pausadas.</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      safeModeManager.resetSafeMode();
+                      setIsSafe(false);
+                    }}
+                    style={{
+                      background: '#ef4444',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: '6px',
+                      padding: '4px 10px',
+                      fontSize: '11px',
+                      cursor: 'pointer',
+                      fontWeight: 600,
+                    }}
+                  >
+                    Restaurar
+                  </button>
+                </div>
+              )}
+
+              {/* Modo Restringido global */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '12px 14px',
+                  marginBottom: '14px',
+                  background: 'var(--color-surface)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: '10px',
+                }}
+              >
+                <div>
+                  <strong style={{ fontSize: '13px', color: 'var(--color-text)', display: 'block' }}>
+                    Modo Restringido (Restricted Mode)
+                  </strong>
+                  <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
+                    Desactiva extensiones comunitarias para máxima seguridad y auditoría.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="index-switch"
+                  role="switch"
+                  aria-checked={isRestricted}
+                  onClick={() => {
+                    const next = !isRestricted;
+                    safeModeManager.setRestrictedMode(next);
+                    setIsRestricted(next);
+                    setHasChanges(true);
+                  }}
+                  title={isRestricted ? 'Desactivar Modo Restringido' : 'Activar Modo Restringido'}
+                >
+                  <span className="knob" />
+                </button>
+              </div>
+
               {hasChanges && (
                 <div
                   style={{
@@ -522,7 +609,42 @@ export const PluginModal: React.FC<PluginModalProps> = ({
                           </p>
                         </div>
 
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          {/* Botón Recargar en caliente (Dev Mode) */}
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              setReloadingId(manifest.id);
+                              try {
+                                if ((window as any).__pluginHost?.reloadPlugin) {
+                                  await (window as any).__pluginHost.reloadPlugin(manifest.id);
+                                } else {
+                                  await onTogglePlugin(manifest.id, false);
+                                  await onTogglePlugin(manifest.id, true);
+                                }
+                              } finally {
+                                setTimeout(() => setReloadingId(null), 500);
+                              }
+                            }}
+                            title={`Recargar ${manifest.name} en caliente (Dev Mode)`}
+                            style={{
+                              background: 'rgba(255, 255, 255, 0.04)',
+                              border: '1px solid var(--color-border)',
+                              color: 'var(--color-text-secondary)',
+                              borderRadius: '7px',
+                              padding: '5px 8px',
+                              fontSize: '11px',
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              fontWeight: 500,
+                            }}
+                          >
+                            <RotateCcw size={12} className={reloadingId === manifest.id ? 'animate-spin' : ''} />
+                            <span>Recargar</span>
+                          </button>
+
                           {/* Botón de Ajustes */}
                           <button
                             type="button"

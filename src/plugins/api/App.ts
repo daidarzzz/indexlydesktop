@@ -6,7 +6,6 @@
 import {
   App,
   FeatureSet,
-  HubApi,
   LegacyApi,
   UiApi,
 } from '../types';
@@ -19,6 +18,8 @@ import { HostWorkspaceApi } from './WorkspaceApi';
 import { HostSettingsApi } from './SettingsApi';
 import { HostImporterApi } from './ImporterApi';
 import { createNativeApi } from './NativeApi';
+import { HostHubApi } from './HubApi';
+import { PluginHost } from '../host/PluginHost';
 
 /**
  * Conjunto de características activadas en el host para detección dinámica.
@@ -65,7 +66,8 @@ export function createAppInstance(
   pluginId: string = 'host',
   sharedEvents?: HostEventsApi,
   sharedCommands?: HostCommandsApi,
-  sharedWorkspace?: HostWorkspaceApi
+  sharedWorkspace?: HostWorkspaceApi,
+  sharedHost?: PluginHost | (() => PluginHost | undefined)
 ): App {
   const events = sharedEvents || new HostEventsApi();
   const commands = sharedCommands || new HostCommandsApi();
@@ -78,21 +80,7 @@ export function createAppInstance(
   const search = new HostSearchApi(events);
   const settings = new HostSettingsApi(pluginId, events, storage);
   const importer = new HostImporterApi(events);
-
-  const hub: HubApi = {
-    async search() {
-      return [];
-    },
-    async getPlugin() {
-      return null;
-    },
-    async install() {},
-    async update() {},
-    async uninstall() {},
-    listInstalled() {
-      return [];
-    },
-  };
+  const hub = new HostHubApi(sharedHost);
 
   const ui: UiApi = {
     getTheme() {
