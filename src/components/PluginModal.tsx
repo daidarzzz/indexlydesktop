@@ -2,6 +2,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { LoadedPlugin, PluginSettingSchema } from '../types';
 import { pluginRegistry } from '../plugins/PluginRegistry';
+import { pluginHost } from '../plugins/host/PluginHost';
 import { safeModeManager } from '../plugins/host/SafeMode';
 import {
   X,
@@ -160,6 +161,11 @@ export const PluginModal: React.FC<PluginModalProps> = ({
   const customSettingsRenderer = selectedPlugin
     ? pluginRegistry.getCustomSettingsRenderer(selectedPlugin.manifest.id)
     : null;
+  const modernSettingTab = selectedPlugin
+    ? (pluginHost.app.settings as any)?.getTabs?.()?.find(
+        (t: any) => t?.plugin?.manifest?.id === selectedPlugin.manifest.id
+      )
+    : null;
 
   return (
     <div className="modal-overlay" onClick={handleExit}>
@@ -232,16 +238,26 @@ export const PluginModal: React.FC<PluginModalProps> = ({
                 )}
               </div>
 
-              {/* Renderizador de ajustes custom si el plugin registró uno */}
-              {customSettingsRenderer && (
+              {/* Renderizador de ajustes custom si el plugin registró uno (Legacy o Modern PluginSettingTab) */}
+              {(customSettingsRenderer || modernSettingTab) && (
                 <div
                   ref={(el) => {
                     if (el && !el.dataset.rendered) {
                       el.dataset.rendered = 'true';
-                      try {
-                        customSettingsRenderer(el);
-                      } catch (err) {
-                        console.error('[Settings] Error en render custom:', err);
+                      el.innerHTML = '';
+                      if (modernSettingTab) {
+                        try {
+                          modernSettingTab.display();
+                          el.appendChild(modernSettingTab.containerEl);
+                        } catch (err) {
+                          console.error('[Settings] Error en display de PluginSettingTab:', err);
+                        }
+                      } else if (customSettingsRenderer) {
+                        try {
+                          customSettingsRenderer(el);
+                        } catch (err) {
+                          console.error('[Settings] Error en render custom:', err);
+                        }
                       }
                     }
                   }}
@@ -249,7 +265,7 @@ export const PluginModal: React.FC<PluginModalProps> = ({
               )}
 
               {/* Renderizador dinámico por esquema */}
-              {!customSettingsRenderer && currentSchema.length > 0 && (
+              {!customSettingsRenderer && !modernSettingTab && currentSchema.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                   {currentSchema.map((field) => {
                     const val = settingsValues[field.id] ?? field.default;
@@ -373,7 +389,7 @@ export const PluginModal: React.FC<PluginModalProps> = ({
               )}
 
               {/* Si el plugin aún no declara ajustes formales */}
-              {!customSettingsRenderer && currentSchema.length === 0 && (
+              {!customSettingsRenderer && !modernSettingTab && currentSchema.length === 0 && (
                 <div
                   style={{
                     padding: '24px 16px',
@@ -563,7 +579,10 @@ export const PluginModal: React.FC<PluginModalProps> = ({
                 {plugins.map((p) => {
                   const { manifest } = p;
                   const schema = getPluginEffectiveSchema(p);
-                  const hasCustomSettings = !!pluginRegistry.getCustomSettingsRenderer(manifest.id);
+                  const modernTab = (pluginHost.app.settings as any)?.getTabs?.()?.find(
+                    (t: any) => t?.plugin?.manifest?.id === manifest.id
+                  );
+                  const hasCustomSettings = !!pluginRegistry.getCustomSettingsRenderer(manifest.id) || !!modernTab;
                   const hasConfig = schema.length > 0 || hasCustomSettings;
 
                   return (

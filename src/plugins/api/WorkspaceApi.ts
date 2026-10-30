@@ -65,6 +65,7 @@ export class HostWorkspaceApi implements WorkspaceApi {
    */
   public registerViewFactory(type: string, factory: ViewFactory): void {
     this._viewFactories.set(type, factory);
+    this._events.emit('workspace:layout-change', {});
   }
 
   /**
@@ -150,6 +151,7 @@ export class HostWorkspaceApi implements WorkspaceApi {
     if (leaf.view?.containerEl && typeof leaf.view.containerEl.scrollIntoView === 'function') {
       leaf.view.containerEl.scrollIntoView({ behavior: 'smooth' });
     }
+    this._events.emit('workspace:leaf:reveal', { leaf });
   }
 
   public detachLeavesOfType(type: string): void {

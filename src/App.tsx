@@ -10,6 +10,9 @@ import { ResultsView } from './components/ResultsView';
 import { PluginModal } from './components/PluginModal';
 import { HubConnectModal } from './components/HubConnectModal';
 import { DocsView } from './components/DocsView';
+import { CommandPaletteModal } from './components/CommandPaletteModal';
+import { pluginHost } from './plugins/host/PluginHost';
+import { WorkspaceLeaf } from './plugins/types';
 import { pluginRegistry, SectionDefinition } from './plugins/PluginRegistry';
 import { LoadedPlugin, SearchResult, Source, ToastItem } from './types';
 
@@ -20,6 +23,8 @@ export function App() {
   const [plugins, setPlugins] = useState<LoadedPlugin[]>([]);
   const [isPluginModalOpen, setIsPluginModalOpen] = useState(false);
   const [isHubModalOpen, setIsHubModalOpen] = useState(false);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [workspaceLeaves, setWorkspaceLeaves] = useState<WorkspaceLeaf[]>([]);
 
   useEffect(() => {
     if (isSpotlightWindow) {
@@ -90,6 +95,25 @@ export function App() {
     return unsub;
   }, []);
 
+  // Escuchar hojas y vistas del espacio de trabajo moderno (WorkspaceLeaves de Plugin API v1)
+  useEffect(() => {
+    const updateLeaves = () => {
+      setWorkspaceLeaves(pluginHost.sharedWorkspace.getLeaves());
+    };
+    const u1 = pluginHost.sharedEvents.on('workspace:layout-change', updateLeaves);
+    const u2 = pluginHost.sharedEvents.on('workspace:leaf:reveal', ({ leaf }: any) => {
+      if (leaf?.view) {
+        setActiveSectionId(leaf.view.getViewType());
+      }
+      updateLeaves();
+    });
+    updateLeaves();
+    return () => {
+      pluginHost.sharedEvents.off(u1);
+      pluginHost.sharedEvents.off(u2);
+    };
+  }, []);
+
   // Helpers globales para control de secciones y modales por plugins
   useEffect(() => {
     (window as any).closePluginModal = () => {
@@ -127,22 +151,58 @@ export function App() {
     };
 
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      // 1. Interceptar Ctrl+P o Cmd+P para la Paleta de Comandos (previene impresión nativa del navegador)
+      if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'p')) {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsCommandPaletteOpen((prev) => !prev);
+        return;
+      }
+
+      // 2. Interceptar Ctrl+K como atajo alternativo estándar
+      if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'k')) {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsCommandPaletteOpen((prev) => !prev);
+        return;
+      }
+
       if (e.key === 'Escape') {
+        if (isCommandPaletteOpen) {
+          setIsCommandPaletteOpen(false);
+          return;
+        }
         const modalEl = document.getElementById('plugin-modal');
         if (modalEl && modalEl.style.display !== 'none') {
           (window as any).closePluginModal();
         } else if (activeSectionId === '__docs__') {
+          setActiveSectionId(null);
+        } else if (activeSectionId) {
           setActiveSectionId(null);
         }
       }
     };
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [activeSectionId]);
+  }, [activeSectionId, isCommandPaletteOpen]);
 
-  // Renderizar la sección activa en su contenedor DOM
+  // Renderizar la sección activa en su contenedor DOM (para legacy sections y modern WorkspaceLeaves)
   useEffect(() => {
     if (activeSectionId && sectionBodyRef.current) {
+      if (activeSectionId === '__docs__') return;
+
+      // 1. Comprobar si es una hoja de espacio de trabajo moderna (ej. ScratchpadView)
+      const leaf = workspaceLeaves.find((l) => l.view && l.view.getViewType() === activeSectionId);
+      if (leaf && leaf.view) {
+        sectionBodyRef.current.innerHTML = '';
+        sectionBodyRef.current.appendChild(leaf.view.containerEl);
+        if (typeof (leaf.view as any).refresh === 'function') {
+          (leaf.view as any).refresh();
+        }
+        return;
+      }
+
+      // 2. Comprobar si es una sección registrada legacy
       const sec = sections.find((s) => s.id === activeSectionId);
       if (sec) {
         sectionBodyRef.current.innerHTML = '';
@@ -153,7 +213,7 @@ export function App() {
         }
       }
     }
-  }, [activeSectionId, sections]);
+  }, [activeSectionId, sections, workspaceLeaves]);
 
   // Cargar fuentes desde Rust
   const loadSources = useCallback(async () => {
@@ -170,7 +230,7 @@ export function App() {
     try {
       const list = await invoke<LoadedPlugin[]>('get_plugins');
       setPlugins(list);
-      pluginRegistry.loadPlugins(list);
+      await pluginRegistry.loadPlugins(list);
     } catch (err) {
       console.error('Error cargando plugins:', err);
     }
@@ -364,7 +424,7 @@ export function App() {
       const updatedList = await invoke<LoadedPlugin[]>('get_plugins');
       setPlugins(updatedList);
       pluginRegistry.teardownPlugin(id);
-      pluginRegistry.loadPlugins(updatedList);
+      await pluginRegistry.loadPlugins(updatedList);
     } catch (err: any) {
       showToast(`Error al alternar plugin: ${err}`, 'error');
     }
@@ -450,6 +510,32 @@ export function App() {
               {sec.label}
             </button>
           ))}
+
+          {/* Vistas y hojas del espacio de trabajo moderno (Plugin API v1) */}
+          {workspaceLeaves.map((leaf) => {
+            if (!leaf.view) return null;
+            const viewType = leaf.view.getViewType();
+            const displayText = leaf.view.getDisplayText() || 'Vista';
+            const isActive = activeSectionId === viewType;
+            return (
+              <button
+                key={leaf.id}
+                type="button"
+                className={`plx-tab ${isActive ? 'active' : ''}`}
+                aria-pressed={isActive}
+                onClick={() => {
+                  setActiveSectionId(viewType);
+                  pluginHost.sharedWorkspace.revealLeaf(leaf);
+                }}
+              >
+                <span>{displayText}</span>
+              </button>
+            );
+          })}
+
+          <div style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+            <div className="indexly-ribbon-bar" id="indexly-ribbon-bar" />
+          </div>
         </div>
 
         {/* Vista integrada de Documentación (Pestaña) */}
@@ -568,6 +654,19 @@ export function App() {
           ))}
         </div>
       )}
+
+      {/* Barra de estado reactiva unificada (Plugin API v1) */}
+      <footer className="indexly-status-bar" id="indexly-status-bar" />
+
+      {/* Paleta de Comandos Interactiva (Ctrl+P / Cmd+P / Ctrl+K) */}
+      <CommandPaletteModal
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        onOpenDocs={() => setActiveSectionId('__docs__')}
+        onOpenPlugins={() => setIsPluginModalOpen(true)}
+        onOpenHub={() => setIsHubModalOpen(true)}
+        onFocusSearch={() => setActiveSectionId(null)}
+      />
     </div>
   );
 }

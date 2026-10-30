@@ -1,6 +1,8 @@
 // src/plugins/PluginRegistry.ts — Motor Co-Kernel de extensibilidad omnipotente para IndexLy
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { pluginHost } from './host/PluginHost';
+import { validateAndNormalizeManifest } from './manifest/validator';
 import {
   UnifiedItem,
   LoadedPlugin,
@@ -449,6 +451,12 @@ class PluginRegistry {
   public teardownPlugin(pluginId: string) {
     this.executedPlugins.delete(pluginId);
 
+    if (pluginHost.isPluginLoaded(pluginId)) {
+      pluginHost.disablePlugin(pluginId).catch((err) => {
+        console.error(`[PluginRegistry] Error desactivando plugin ${pluginId} en pluginHost:`, err);
+      });
+    }
+
     // 1. Ejecutar limpiadores y disposables del plugin
     const disposables = this.pluginDisposables.get(pluginId);
     if (disposables) {
@@ -583,7 +591,7 @@ class PluginRegistry {
     modalEl.classList.add('open');
   }
 
-  public loadPlugins(plugins: LoadedPlugin[]) {
+  public async loadPlugins(plugins: LoadedPlugin[]): Promise<void> {
     const enabledIds = new Set(plugins.filter((p) => p.manifest.enabled).map((p) => p.manifest.id));
     for (const execId of Array.from(this.executedPlugins)) {
       if (!enabledIds.has(execId)) {
@@ -1119,6 +1127,10 @@ class PluginRegistry {
     (window as any).__indexly_get_sections = () => self.getSections();
     ((window as any).pluginRuntime = (window as any).pluginRuntime || {}).sections = self.sections;
 
+    if (typeof window !== 'undefined') {
+      (window as any).__pluginHost = pluginHost;
+    }
+
     // Ejecutar todos los plugins habilitados que no hayan sido ejecutados aún
     for (const p of plugins) {
       if (p.manifest.enabled && p.js_bundle) {
@@ -1129,21 +1141,41 @@ class PluginRegistry {
         try {
           this.teardownPlugin(p.manifest.id);
 
-          if (p.css_bundle) {
-            let style = document.querySelector(`style[data-plugin="${p.manifest.id}"]`) as HTMLStyleElement | null;
-            if (!style) {
-              style = document.createElement('style');
-              style.setAttribute('data-plugin', p.manifest.id);
-              document.head.appendChild(style);
+          const isModern =
+            p.js_bundle.includes("require('indexly')") ||
+            p.js_bundle.includes('require("indexly")') ||
+            p.js_bundle.includes('extends Plugin') ||
+            (p.manifest as any).schemaVersion !== undefined ||
+            (p.manifest as any).minAppVersion !== undefined ||
+            (p.manifest as any).minHostVersion !== undefined ||
+            Boolean((p.manifest as any).main && (p.manifest as any).main !== 'index.js');
+
+          if (isModern) {
+            try {
+              const normalizedManifest = validateAndNormalizeManifest(p.manifest);
+              pluginHost.registerPlugin(normalizedManifest, p.js_bundle, p.css_bundle ?? undefined);
+              await pluginHost.enablePlugin(p.manifest.id);
+              this.executedPlugins.add(p.manifest.id);
+            } catch (pluginErr) {
+              console.error(`[PluginHost] Error cargando plugin moderno ${p.manifest.id}:`, pluginErr);
             }
-            style.textContent = p.css_bundle;
+          } else {
+            if (p.css_bundle) {
+              let style = document.querySelector(`style[data-plugin="${p.manifest.id}"]`) as HTMLStyleElement | null;
+              if (!style) {
+                style = document.createElement('style');
+                style.setAttribute('data-plugin', p.manifest.id);
+                document.head.appendChild(style);
+              }
+              style.textContent = p.css_bundle;
+            }
+
+            (window as any).__current_register_plugin_id = p.manifest.id;
+            const runFn = new Function('IndexLy', p.js_bundle);
+            runFn((window as any).IndexLy);
+
+            this.executedPlugins.add(p.manifest.id);
           }
-
-          (window as any).__current_register_plugin_id = p.manifest.id;
-          const runFn = new Function('IndexLy', p.js_bundle);
-          runFn((window as any).IndexLy);
-
-          this.executedPlugins.add(p.manifest.id);
         } catch (err) {
           console.error(`[IndexLy] Error cargando plugin ${p.manifest.id}:`, err);
         }
