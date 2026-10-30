@@ -1,12 +1,13 @@
 // src/components/Header.tsx — Cabecera principal idéntica a IndexLy
 import React from 'react';
-import { Puzzle, Globe, ExternalLink } from 'lucide-react';
+import { Puzzle, Globe, ExternalLink, BookOpen } from 'lucide-react';
 
 interface HeaderProps {
   onOpenPlugins: () => void;
   pluginsCount: number;
   hubToken: string | null;
   onOpenHubModal: () => void;
+  onOpenDocs: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -14,6 +15,7 @@ export const Header: React.FC<HeaderProps> = ({
   pluginsCount,
   hubToken,
   onOpenHubModal,
+  onOpenDocs,
 }) => {
   return (
     <header className="site-header">
@@ -51,6 +53,16 @@ export const Header: React.FC<HeaderProps> = ({
             <Puzzle size={13} />
             <span>Plugins</span>
             {pluginsCount > 0 && <span className="fuentes-count">{pluginsCount}</span>}
+          </button>
+
+          <button
+            type="button"
+            className="nav-btn"
+            onClick={onOpenDocs}
+            title="Documentación técnica y guías de IndexLy"
+          >
+            <BookOpen size={13} />
+            <span>Docs</span>
           </button>
 
           <a

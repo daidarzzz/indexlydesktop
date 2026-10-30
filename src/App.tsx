@@ -8,6 +8,7 @@ import { Controls } from './components/Controls';
 import { ResultsView } from './components/ResultsView';
 import { PluginModal } from './components/PluginModal';
 import { HubConnectModal } from './components/HubConnectModal';
+import { DocsModal } from './components/DocsModal';
 import { pluginRegistry, SectionDefinition } from './plugins/PluginRegistry';
 import { LoadedPlugin, SearchResult, Source, ToastItem } from './types';
 
@@ -18,6 +19,7 @@ export function App() {
   const [plugins, setPlugins] = useState<LoadedPlugin[]>([]);
   const [isPluginModalOpen, setIsPluginModalOpen] = useState(false);
   const [isHubModalOpen, setIsHubModalOpen] = useState(false);
+  const [isDocsModalOpen, setIsDocsModalOpen] = useState(false);
 
   useEffect(() => {
     if (isSpotlightWindow) {
@@ -408,6 +410,7 @@ export function App() {
         pluginsCount={plugins.filter((p) => p.manifest.enabled).length}
         hubToken={hubToken}
         onOpenHubModal={() => setIsHubModalOpen(true)}
+        onOpenDocs={() => setIsDocsModalOpen(true)}
       />
 
       <main className={`Search ${activeSectionId ? 'section-open' : ''}`}>
@@ -536,6 +539,11 @@ export function App() {
         token={hubToken}
         onSaveToken={handleSaveHubToken}
         onDisconnect={handleDisconnectHub}
+      />
+
+      <DocsModal
+        isOpen={isDocsModalOpen}
+        onClose={() => setIsDocsModalOpen(false)}
       />
 
       {toasts.length > 0 && (
