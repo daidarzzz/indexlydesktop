@@ -121,6 +121,7 @@ impl Database {
             PRAGMA temp_store = MEMORY;
         ")?;
 
+        // 1. Tablas base (si no existen)
         conn.execute_batch("
             CREATE TABLE IF NOT EXISTS sources (
                 id TEXT PRIMARY KEY,
@@ -144,13 +145,44 @@ impl Database {
                 raw_json TEXT
             );
 
-            CREATE INDEX IF NOT EXISTS idx_items_source ON items(source_id);
-            CREATE INDEX IF NOT EXISTS idx_items_file_size ON items(file_size_bytes);
-
             CREATE TABLE IF NOT EXISTS _keychain (
                 key TEXT PRIMARY KEY,
                 val TEXT NOT NULL
             );
+        ")?;
+
+        // 2. Migraciones incrementales si la base de datos existía previamente en versiones antiguas
+        let _ = conn.execute("ALTER TABLE sources ADD COLUMN flags_json TEXT", []);
+        let _ = conn.execute("ALTER TABLE items ADD COLUMN file_size_bytes INTEGER", []);
+
+        // 3. Backfill de file_size_bytes para datos existentes ANTES de activar los triggers de FTS5
+        let rows_to_update: Vec<(String, i64)> = {
+            if let Ok(mut stmt) = conn.prepare("SELECT id, file_size FROM items WHERE file_size_bytes IS NULL AND file_size IS NOT NULL") {
+                stmt.query_map([], |row| {
+                    let id: String = row.get(0)?;
+                    let file_size: Option<String> = row.get(1)?;
+                    Ok((id, file_size))
+                })
+                .ok()
+                .map(|mapped| {
+                    mapped.filter_map(|r| r.ok()).filter_map(|(id, size_opt)| {
+                        parse_file_size_bytes(size_opt.as_deref()).map(|bytes| (id, bytes))
+                    }).collect()
+                })
+                .unwrap_or_default()
+            } else {
+                Vec::new()
+            }
+        };
+
+        for (id, bytes) in rows_to_update {
+            let _ = conn.execute("UPDATE items SET file_size_bytes = ?1 WHERE id = ?2", rusqlite::params![bytes, id]);
+        }
+
+        // 4. Creación segura de índices, tablas FTS5 y disparadores
+        conn.execute_batch("
+            CREATE INDEX IF NOT EXISTS idx_items_source ON items(source_id);
+            CREATE INDEX IF NOT EXISTS idx_items_file_size ON items(file_size_bytes);
 
             CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
                 title,
@@ -158,6 +190,8 @@ impl Database {
                 content='items',
                 content_rowid='rowid'
             );
+
+            INSERT INTO items_fts(items_fts) VALUES('rebuild');
 
             CREATE TRIGGER IF NOT EXISTS items_ai AFTER INSERT ON items BEGIN
                 INSERT INTO items_fts(rowid, title, subtitle) VALUES (new.rowid, new.title, new.subtitle);
@@ -172,12 +206,6 @@ impl Database {
                 INSERT INTO items_fts(rowid, title, subtitle) VALUES (new.rowid, new.title, new.subtitle);
             END;
         ")?;
-
-        // Migraciones idóneas si las tablas ya existían sin nuevas columnas
-        let _ = conn.execute("ALTER TABLE sources ADD COLUMN flags_json TEXT", []);
-        let _ = conn.execute("ALTER TABLE items ADD COLUMN file_size_bytes INTEGER", []);
-        let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_items_file_size ON items(file_size_bytes)", []);
-        let _ = conn.execute("CREATE TABLE IF NOT EXISTS _keychain (key TEXT PRIMARY KEY, val TEXT NOT NULL)", []);
 
         // Limpieza de fuentes corruptas o imports binarios no válidos de versiones previas
         let _ = conn.execute(
@@ -1142,5 +1170,59 @@ mod tests {
         assert_eq!(sources.len(), 1);
         assert!(sources[0].flags.is_some(), "insert_sources_batch debe persistir flags_json");
         assert_eq!(sources[0].flags.as_ref().unwrap().get("isBatchFlag"), Some(&true));
+    }
+
+    #[test]
+    fn test_legacy_migration_without_file_size_bytes() {
+        let db_path = std::env::temp_dir().join(format!(
+            "test_legacy_{}.db",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+
+        // 1. Simular base de datos legacy creada por versión previa sin file_size_bytes
+        {
+            let conn = rusqlite::Connection::open(&db_path).unwrap();
+            conn.execute_batch("
+                CREATE TABLE sources (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    active INTEGER NOT NULL DEFAULT 1,
+                    mapping_json TEXT,
+                    pkg_json TEXT,
+                    raw_content TEXT
+                );
+
+                CREATE TABLE items (
+                    id TEXT PRIMARY KEY,
+                    source_id TEXT NOT NULL,
+                    source_name TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    subtitle TEXT,
+                    file_size TEXT,
+                    link TEXT,
+                    raw_json TEXT
+                );
+
+                INSERT INTO items (id, source_id, source_name, title, file_size)
+                VALUES ('legacy1', 'src1', 'Legacy Source', 'Ubuntu Linux', '2.5 GB');
+            ").unwrap();
+        }
+
+        // 2. Abrir con Database::new: debe migrar sin panics
+        let db = Database::new(&db_path).expect("La inicialización debe migrar la base de datos legacy sin fallos");
+
+        // 3. Verificar que file_size_bytes fue añadido y retro-rellenado (backfill)
+        let file_size_bytes: Option<i64> = db.conn.lock().unwrap().query_row(
+            "SELECT file_size_bytes FROM items WHERE id = 'legacy1'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+
+        assert_eq!(file_size_bytes, Some(2684354560)); // 2.5 GB en bytes
+
+        let _ = std::fs::remove_file(&db_path);
     }
 }
