@@ -511,15 +511,16 @@ export function App() {
             </button>
           ))}
 
-          {/* Vistas y hojas del espacio de trabajo moderno (Plugin API v1) */}
-          {workspaceLeaves.map((leaf) => {
-            if (!leaf.view) return null;
-            const viewType = leaf.view.getViewType();
-            const displayText = leaf.view.getDisplayText() || 'Vista';
+          {/* Vistas y hojas del espacio de trabajo moderno (Plugin API v1, deduplicadas por viewType) */}
+          {Array.from(
+            new Map(workspaceLeaves.filter((l) => l.view).map((l) => [l.view!.getViewType(), l])).values()
+          ).map((leaf) => {
+            const viewType = leaf.view!.getViewType();
+            const displayText = leaf.view!.getDisplayText() || 'Vista';
             const isActive = activeSectionId === viewType;
             return (
               <button
-                key={leaf.id}
+                key={viewType}
                 type="button"
                 className={`plx-tab ${isActive ? 'active' : ''}`}
                 aria-pressed={isActive}

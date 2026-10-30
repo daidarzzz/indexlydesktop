@@ -84,8 +84,12 @@ export abstract class Plugin extends Component {
     };
     button.addEventListener('click', clickListener);
 
-    // Insertar en contenedor ribbon del host si existe, o en document.body
+    // Insertar en contenedor ribbon del host si existe, o en document.body (eliminando previos para evitar duplicados)
     const ribbonContainer = document.querySelector('.indexly-ribbon-bar') || document.body;
+    const existingRibbon = ribbonContainer.querySelector(`[data-plugin-id="${this.manifest.id}"]`);
+    if (existingRibbon) {
+      existingRibbon.remove();
+    }
     ribbonContainer.appendChild(button);
 
     this.register(() => {
@@ -107,6 +111,10 @@ export abstract class Plugin extends Component {
     item.setAttribute('data-plugin-id', this.manifest.id);
 
     const statusBarContainer = document.querySelector('.indexly-status-bar') || document.body;
+    const existingStatus = statusBarContainer.querySelector(`[data-plugin-id="${this.manifest.id}"]`);
+    if (existingStatus) {
+      existingStatus.remove();
+    }
     statusBarContainer.appendChild(item);
 
     this.register(() => {
