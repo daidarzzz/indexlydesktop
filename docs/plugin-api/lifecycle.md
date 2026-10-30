@@ -1,6 +1,6 @@
-# Ciclo de Vida y Prevención de Fugas de Memoria
+# Ciclo de Vida, Prevención de Fugas y Token de Generación
 
-Este documento describe la máquina de estados, el protocolo de carga/descarga y los requisitos de limpieza estricta implementados en el **PluginHost** de IndexLy Desktop.
+Este documento describe la máquina de estados, el protocolo de carga/descarga, la semántica realista de timeouts frente a las limitaciones de V8 y la instrumentación rigurosa del harness de pruebas contra fugas de memoria.
 
 ---
 
@@ -10,77 +10,73 @@ Este documento describe la máquina de estados, el protocolo de carga/descarga y
 stateDiagram-v2
     [*] --> Discovered: Lectura de manifest.json
     Discovered --> Inactive: Registrado en el catálogo local
-    Inactive --> Loading: Activación solicitada por el usuario
+    Inactive --> Loading: Activación solicitada (Asignación de generationId)
     Loading --> Active: onload() completa con éxito (<10s)
-    Loading --> Failed: Excepción o Timeout en onload()
+    Loading --> Failed: Excepción o Timeout en onload() (Invalidación de generationId)
     Active --> Unloading: Desactivación, recarga o cierre
-    Unloading --> Inactive: onunload() completa con éxito (<5s) y disposables purgados
-    Unloading --> Failed: Excepción o Timeout en onunload() (limpieza forzosa)
+    Unloading --> Inactive: onunload() completa con éxito (<5s) y purga LIFO
+    Unloading --> Failed: Timeout en onunload() (Purga forzosa)
     Failed --> Inactive: Reintento manual / Reinicio
     Inactive --> [*]: Desinstalación y borrado de directorio
 ```
 
 ---
 
-## 2. Semántica de los Métodos del Ciclo de Vida
+## 2. Semántica de Timeouts y Token de Generación
 
-### 2.1 `onload(): void | Promise<void>`
-- Se ejecuta inmediatamente después de que el archivo `main.js` ha sido evaluado en memoria por el cargador.
-- El plugin debe utilizar este hook para inicializar servicios, registrar comandos, vistas y suscribirse a eventos.
-- **Timeout de 10 segundos:** Si la promesa devuelta por `onload()` tarda más de 10.000 ms en resolverse, el `PluginHost` aborta la operación, cancela los registros parciales efectuados y marca el plugin en estado `Failed`.
+### 2.1 Limitaciones de V8 y Código Síncrono
+En el modelo de concurrencia de JavaScript basado en un único hilo con bucle de eventos, **ningún temporizador ni interrupción externa de software puede abortar de forma segura un bucle síncrono infinito** (`while(true)`). 
 
-### 2.2 `onunload(): void | Promise<void>`
-- Se ejecuta cuando el usuario desactiva el plugin, durante una recarga en caliente (Hot Reload) o durante el cierre limpio de la aplicación.
-- Debe ser **estrictamente idempotente**: si se invoca más de una vez, las llamadas sucesivas deben ignorarse de forma segura.
-- **Timeout de 5 segundos:** Si la promesa de `onunload()` no resuelve en 5.000 ms, el host interrumpe la espera y ejecuta forzosamente la purga de todos los recursos vinculados.
+Por tanto, el `PluginHost` adopta un enfoque realista:
+1. **Medición de Bloqueo Síncrono:** Todas las fases de ejecución de plugins son medidas con `performance.now()`. Si una llamada síncrona retiene el hilo más de **250 ms**, se emite una alerta diagnóstica. Si supera 10 segundos continuos, el watchdog del sistema operativo alertará al usuario y forzará el Modo Seguro en el siguiente arranque.
+2. **Promesas Asíncronas:** Para operaciones asíncronas (`onload()`, `onunload()`), el host establece una carrera (`Promise.race`) contra un temporizador interno:
+   - `onload()`: 10 segundos.
+   - `onunload()`: 5 segundos.
 
----
-
-## 3. Registro Reversible y Lista de Limpieza (Disposables)
-
-Todos los registros delegados a la clase base `Plugin` generan una función de limpieza interna que se almacena en la pila de descarte del plugin:
-
-| Método | Función Interna | Limpieza Automática |
-|---|---|---|
-| `addCommand(cmd)` | Añade comando a la paleta central | Retira el comando de `app.commands` |
-| `addRibbonIcon(...)` | Inserta icono en la barra lateral | Elimina el elemento `HTMLElement` del DOM |
-| `addStatusBarItem()` | Inserta elemento en la barra de estado | Elimina el elemento `HTMLElement` del DOM |
-| `addSettingTab(tab)` | Registra una pestaña de configuración | Elimina la pestaña del panel de ajustes |
-| `registerView(type, factory)` | Registra una vista de hoja | Desregistra el tipo y cierra todas las hojas activas asociadas |
-| `registerEvent(eventRef)` | Se suscribe a un evento del host | Invoca `app.events.off(eventRef)` |
-| `registerDomEvent(el, type, cb)` | Añade un `addEventListener` nativo | Invoca `removeEventListener(type, cb)` |
-| `registerInterval(id)` | Registra un temporizador recurrente | Invoca `window.clearInterval(id)` |
-| `register(callback)` | Callback de limpieza personalizado | Ejecuta el callback proporcionado |
-
-### Orden LIFO Estricto
-Al descargar el plugin, las funciones de descarte se ejecutan en **orden inverso al registro** (Last-In-First-Out). Esto garantiza que las dependencias registradas en primer lugar permanezcan vivas mientras se desmontan los elementos dependientes.
-
----
-
-## 4. Metodología de la Prueba de Fugas (Leak Test)
-
-Para certificar que un plugin cumple con el contrato de estabilidad y no degrada el rendimiento de la aplicación tras usos prolongados, se aplica la siguiente suite de validación obligatoria:
-
-1. **Captura del Estado Base:** Se contabiliza el número total de:
-   - Elementos en el DOM global (`document.querySelectorAll('*').length`).
-   - Listeners de eventos registrados en `window` y `document`.
-   - Intervalos y timeouts activos en el runtime.
-   - Atajos de teclado y escuchas IPC en el backend Tauri.
-2. **Ejecución de 100 Ciclos:**
+### 2.2 Token de Generación (`generationId`)
+Para evitar que un plugin cuyo `onload()` sufrió un timeout intente mutar el host cuando finalmente resuelve tarde (problema del plugin zombi):
+1. Cada ciclo de carga genera un número de versión `generationId` monótonamente creciente en el host.
+2. La instancia del plugin recibe este `generationId`.
+3. Todos los métodos de registro (`addCommand`, `registerView`, `registerEvent`, etc.) verifican:
    ```ts
-   for (let i = 0; i < 100; i++) {
-     await pluginHost.enablePlugin(pluginId);
-     await pluginHost.disablePlugin(pluginId);
+   if (this._generationId !== host.getActiveGenerationId(this.manifest.id)) {
+     console.warn(`[PluginHost] Intento de registro descartado: generationId obsoleto para ${this.manifest.id}`);
+     return; // Descarte silencioso sin mutación de estado
    }
    ```
-3. **Comprobación de Tolerancia Cero:** El recuento final de nodos, listeners y temporizadores debe ser **exactamente igual** al estado base capturado antes de iniciar el ciclo. Si queda un solo nodo huérfano, la prueba falla.
+4. Al dispararse un timeout o al iniciar la descarga, el `generationId` del plugin se invalida de inmediato. Cualquier llamada posterior queda desarmada.
 
 ---
 
-## 5. Persistencia de Datos Atómica
+## 3. Atribución de Errores Globales
 
-Los plugins pueden persistir ajustes o datos de sesión mediante `this.loadData()` y `this.saveData(data)`.
+Cuando se produce un error no capturado en la aplicación, el host lo atribuye al plugin exacto mediante una estrategia triple:
 
-- **Ubicación:** `<appDataDir>/plugins/<pluginId>/data.json`.
-- **Escritura Atómica:** `saveData` escribe primero en un archivo temporal (`data.json.tmp`) y ejecuta una operación de renombrado atómico (`rename`) en el sistema de archivos nativo, evitando que caídas repentinas de energía o cierres inesperados corrompan el archivo de configuración.
-- **Límite Blando:** Si el archivo o la carpeta de datos de un plugin supera los 100 MB, el host emite una advertencia de diagnóstico para prevenir el agotamiento accidental del disco.
+1. **Virtual Source URLs:** Todo código evaluado por el loader inyecta al final:
+   ```js
+   //# sourceURL=indexly-plugin://${manifest.id}/main.js
+   ```
+2. **Stack Trace Parsing:** Los manejadores globales `window.onerror` y `window.onunhandledrejection` analizan el `error.stack`. Si la pila contiene `indexly-plugin://${manifest.id}/`, el error se adjudica inequívocamente a ese plugin.
+3. **Pila de Contexto (`safeCall`):** Durante la invocación de callbacks registrados (eventos, atajos, comandos), el host establece `activePluginContext = pluginId` en un stack síncrono. Los callbacks diferidos capturan esta etiqueta para mantener la trazabilidad.
+
+---
+
+## 4. Test de Fugas con Instrumentación de Harness (`@indexly/plugin-test-kit`)
+
+Para verificar de forma infalible la ausencia de fugas tras 100 ciclos de activación/desactivación, el harness instrumenta los puntos críticos del runtime:
+
+```mermaid
+graph TD
+    Harness["Test Harness (@indexly/plugin-test-kit)"] --> MonkeyDOM["Monkey-Patch EventTarget (Track Listeners)"]
+    Harness --> MonkeyTimer["Spy Timers (setInterval, setTimeout, rAF)"]
+    Harness --> MonkeyIPC["Spy Tauri IPC (listen / unlisten pairs)"]
+    Harness --> WeakCheck["WeakRef & FinalizationRegistry (GC Validation)"]
+    Harness --> DOMTree["MutationObserver & Head Style Cleanliness"]
+```
+
+### Protocolo de Validación:
+1. **EventTarget Tracking:** Se interceptan `addEventListener` y `removeEventListener` registrando las referencias en un `Map<EventTarget, Set<{ type, listener, pluginId }>>`. Al finalizar el ciclo `onunload()`, el conjunto debe estar vacío.
+2. **Timer Tracking:** Se contabilizan los IDs de `setInterval` y `setTimeout`. Ningún temporizador registrado por el plugin debe continuar activo tras `onunload()`.
+3. **Tauri IPC Listeners:** Se verifica que todas las funciones de desuscripción devueltas por `@tauri-apps/api/event.listen` hayan sido invocadas.
+4. **Limpieza del DOM:** Se comprueba que ningún elemento HTML huérfano ni etiqueta `<style data-plugin-id="...">` permanezca en el documento.
+5. **Retención de Instancia (GC Check):** La instancia de la clase `Plugin` se envuelve en un `WeakRef`. Tras la descarga y la llamada forzada a `global.gc()`, el harness comprueba que el recolector de basura haya reclamado la instancia, demostrando que el host no retiene closures indebidas.

@@ -4,154 +4,89 @@ El módulo `app.native` proporciona acceso estructurado y de alto rendimiento a 
 
 ---
 
-## 1. Módulos y Métodos
+## 1. Restricción de Namespace en `invoke`
 
-### 1.1 `app.native.fs` (Sistema de Archivos)
-Permite la manipulación directa de archivos y directorios en el almacenamiento local.
-
-- **`read(path: string): Promise<Uint8Array>`**: Lee el contenido binario de un archivo.
-- **`readText(path: string): Promise<string>`**: Lee un archivo de texto codificado en UTF-8.
-- **`write(path: string, data: Uint8Array | string): Promise<void>`**: Escribe datos en un archivo de forma atómica.
-- **`readDir(path: string): Promise<DirEntry[]>`**: Lista las entradas de un directorio.
-- **`mkdir(path: string, opts?: { recursive?: boolean }): Promise<void>`**: Crea un directorio.
-- **`remove(path: string, opts?: { recursive?: boolean }): Promise<void>`**: Elimina un archivo o directorio.
-- **`rename(from: string, to: string): Promise<void>`**: Mueve o renombra un elemento en disco.
-- **`stat(path: string): Promise<FileStat>`**: Obtiene metadatos de tamaño, fechas de modificación y permisos.
-- **`watch(path: string, cb: (ev: WatchEvent) => void): Promise<() => void>`**: Observa cambios en un directorio. Devuelve una función de desregistro.
-
-*Ejemplo:*
 ```ts
-const content = await app.native.fs.readText('C:/datos/catalogo.json');
-const stat = await app.native.fs.stat('C:/datos/catalogo.json');
-console.log(`Tamaño: ${stat.size} bytes`);
+app.native.invoke<T = unknown>(cmd: string, args?: Record<string, unknown>): Promise<T>;
 ```
+
+Para asegurar el contrato de estabilidad y evitar el acoplamiento accidental con comandos internos del host que puedan variar entre versiones:
+1. **Namespace Público Permitido:** `invoke` solo acepta comandos con prefijo `plugin:*` (p. ej. `plugin:fs_read`, `plugin:process_spawn`) o comandos registrados explícitamente por plugins nativos de Tauri.
+2. **Rechazo de Comandos Privados:** Cualquier intento de invocar comandos internos privados del host (`core:*`, `__host_private_*`) es interceptado y rechazado con una excepción `NativeError` (`ERR_INVOKE_DISALLOWED`).
 
 ---
 
-### 1.2 `app.native.path` (Gestión de Rutas)
-Utilidades de normalización de rutas y resolución de directorios estándar del sistema operativo.
+## 2. Módulos y Métodos
 
+### 2.1 `app.native.db` (Acceso a SQLite y Resolución de `db:write`)
+- **`query<T = unknown>(sql: string, params?: unknown[]): Promise<T[]>`**: Ejecuta consultas `SELECT` sobre un pool de conexiones SQLite separado configurado en **solo lectura** (`PRAGMA query_only = ON`), garantizando que búsquedas o escaneos intensivos de plugins no interfieran ni bloqueen las escrituras del host.
+- **`exec(sql: string): Promise<void>`**: Ejecuta sentencias de mutación de esquema o datos sobre la conexión de escritura. 
+  - *Filosofía de confianza:* No se bloquea artificialmente en runtime.
+  - *Transparencia:* Requiere declarar `"permissions": ["db:write"]` en `manifest.json`. La UI advierte al usuario durante la instalación y el análisis estático del Hub audita su uso.
+
+---
+
+### 2.2 `app.native.fs` (Sistema de Archivos)
+Manipulación directa y atómica de archivos locales:
+
+- `read(path: string): Promise<Uint8Array>`: Lectura de contenido binario.
+- `readText(path: string): Promise<string>`: Lectura de texto en UTF-8.
+- `write(path: string, data: Uint8Array | string): Promise<void>`: Escritura atómica a disco.
+- `readDir(path: string): Promise<DirEntry[]>`: Listado de entradas de un directorio.
+- `mkdir(path: string, opts?: { recursive?: boolean }): Promise<void>`: Creación de directorios.
+- `remove(path: string, opts?: { recursive?: boolean }): Promise<void>`: Eliminación de archivos o carpetas.
+- `rename(from: string, to: string): Promise<void>`: Movimiento o renombrado de ficheros.
+- `stat(path: string): Promise<FileStat>`: Metadatos de tamaño, permisos y marcas temporales.
+- `watch(path: string, cb: (ev: WatchEvent) => void): Promise<() => void>`: Monitorización en tiempo real de directorios.
+
+---
+
+### 2.3 `app.native.path` (Gestión de Rutas)
 - `join(...parts: string[]): string`
 - `resolve(...parts: string[]): string`
 - `dirname(p: string): string`
 - `basename(p: string): string`
 - `extname(p: string): string`
-- `appData(): Promise<string>`: Directorio de datos de la aplicación (`%APPDATA%`, `~/Library/Application Support`, `~/.config`).
+- `appData(): Promise<string>`: Directorio de datos de la app (`%APPDATA%` en Windows).
 - `appConfig(): Promise<string>`
-- `home(): Promise<string>`: Directorio del usuario actual.
-- `temp(): Promise<string>`: Directorio temporal del sistema.
-- `sep: string`: Separador de rutas nativo (`\` en Windows, `/` en POSIX).
+- `home(): Promise<string>`: Carpeta de usuario.
+- `temp(): Promise<string>`: Carpeta temporal del sistema.
+- `sep: string`: Separador nativo (`\` en Windows, `/` en POSIX).
 
 ---
 
-### 1.3 `app.native.process` (Gestión de Procesos)
-Ejecución asíncrona de binarios y comandos del sistema operativo.
-
-- **`spawn(cmd: string, args?: string[], opts?: SpawnOptions): Promise<ChildHandle>`**: Inicia un proceso secundario con streaming de `stdout`, `stderr` y control de ciclo de vida.
-- **`exec(cmd: string, opts?: ExecOptions): Promise<{ code: number; stdout: string; stderr: string }>`**: Ejecuta un comando hasta su finalización y devuelve la salida completa.
-- **`kill(pid: number): Promise<void>`**: Termina un proceso por su identificador.
-- **`env(): Promise<Record<string, string>>`**: Variables de entorno del proceso actual.
-- **`cwd(): Promise<string>`**: Directorio de trabajo actual del proceso.
-
-*Ejemplo:*
-```ts
-const result = await app.native.process.exec('git', { cwd: 'C:/mi-repo' });
-if (result.code === 0) {
-  console.log(result.stdout);
-}
-```
+### 2.4 `app.native.process` (Gestión de Procesos)
+- `spawn(cmd: string, args?: string[], opts?: SpawnOptions): Promise<ChildHandle>`: Creación de subprocesos con streaming de salida.
+- `exec(cmd: string, opts?: ExecOptions): Promise<{ code: number; stdout: string; stderr: string }>`: Ejecución y captura completa.
+- `kill(pid: number): Promise<void>`: Cierre forzado de subprocesos.
+- `env(): Promise<Record<string, string>>`: Lectura de variables de entorno del sistema.
+- `cwd(): Promise<string>`: Directorio de trabajo del proceso anfitrión.
 
 ---
 
-### 1.4 `app.native.net` (Red y Transferencias)
-- **`fetch(input: string | Request, init?: RequestInit): Promise<Response>`**: Solicitud HTTP de alto rendimiento ejecutada directamente en el backend de Rust (evitando restricciones CORS del navegador).
-- **`download(url: string, dest: string, onProgress?: (n: number) => void): Promise<void>`**: Descarga un archivo directamente a disco con notificación continua de progreso.
-- **`listen(port: number, cb: (req: unknown) => void): Promise<() => void>`**: Abre un servidor HTTP/TCP local para webhooks o integraciones de depuración.
+### 2.5 `app.native.net` (Red y Transferencias)
+- `fetch(input: string | Request, init?: RequestInit): Promise<Response>`: Petición HTTP nativa mediante Rust/Reqwest, sin restricciones CORS.
+- `download(url: string, dest: string, onProgress?: (n: number) => void): Promise<void>`: Descarga optimizada a disco con callback continuo.
+- `listen(port: number, cb: (req: unknown) => void): Promise<() => void>`: Servidor local TCP/HTTP para extensiones avanzadas.
 
 ---
 
-### 1.5 `app.native.shell` (Integración con el Shell del Sistema)
-- **`openPath(path: string): Promise<void>`**: Abre un archivo o carpeta con la aplicación predeterminada del sistema.
-- **`openUrl(url: string): Promise<void>`**: Abre un enlace en el navegador web predeterminado.
-- **`showInFolder(path: string): Promise<void>`**: Abre el explorador de archivos con el elemento seleccionado.
+### 2.6 `app.native.keychain` (Llavero Seguro del SO)
+Gestión de secretos en el keyring criptográfico del sistema operativo (Windows Credential Manager, Apple Keychain, Secret Service API en Linux):
+
+- `get(key: string): Promise<string | null>`
+- `set(key: string, value: string): Promise<void>`
+- `delete(key: string): Promise<void>`
+
+*Regla vinculante:* Los tokens de acceso, contraseñas o claves privadas jamás deben almacenarse en `localStorage` ni en `data.json`.
 
 ---
 
-### 1.6 `app.native.clipboard` (Portapapeles)
-- **`readText(): Promise<string>`**
-- **`writeText(s: string): Promise<void>`**
-- **`readImage(): Promise<Uint8Array | null>`**
-- **`writeImage(b: Uint8Array): Promise<void>`**
-
----
-
-### 1.7 `app.native.notifications` (Notificaciones Nativas)
-- **`send(opts: { title: string; body?: string; icon?: string }): Promise<void>`**: Despacha una notificación del centro de actividades del sistema operativo (Windows Action Center, macOS Notification Center, libnotify en Linux).
-
----
-
-### 1.8 `app.native.tray` (Bandeja del Sistema)
-- **`create(opts: TrayOptions): Promise<TrayHandle>`**: Añade un icono a la bandeja del sistema con menú contextual asociado.
-- **`update(h: TrayHandle, opts: Partial<TrayOptions>): Promise<void>`**: Actualiza título, icono o menú.
-- **`remove(h: TrayHandle): Promise<void>`**: Retira el icono de la bandeja.
-
----
-
-### 1.9 `app.native.shortcuts` (Atajos Globales de Teclado)
-- **`register(accel: string, cb: () => void): Promise<() => void>`**: Registra un acelerador a nivel de sistema (p. ej. `CommandOrControl+Shift+Space`). Devuelve la función de cancelación.
-- **`unregister(accel: string): Promise<void>`**
-
----
-
-### 1.10 `app.native.windows` (Gestión de Ventanas)
-- **`create(opts: WindowOptions): Promise<WindowHandle>`**: Crea una ventana auxiliar nativa (p. ej., visor flotante o spotlight).
-- **`list(): Promise<WindowInfo[]>`**: Enumera las ventanas abiertas.
-- **`focus(id: string): Promise<void>`**
-- **`close(id: string): Promise<void>`**
-
----
-
-### 1.11 `app.native.os` (Información de la Plataforma)
-- **`platform(): 'windows' | 'macos' | 'linux'`**
-- **`arch(): string`** (`x86_64`, `aarch64`)
-- **`version(): Promise<string>`**
-- **`locale(): string`**
-
----
-
-### 1.12 `app.native.keychain` (Llavero Seguro del Sistema Operativo)
-Gestión de credenciales cifradas mediante el keyring nativo de cada sistema (Windows Credential Manager, Apple Keychain, FreeDesktop Secret Service).
-
-- **`get(key: string): Promise<string | null>`**
-- **`set(key: string, value: string): Promise<void>`**
-- **`delete(key: string): Promise<void>`**
-
-*Regla crítica:* Los tokens de autenticación o secretos nunca deben guardarse en `data.json` o `localStorage`.
-
----
-
-### 1.13 `app.native.db` (Acceso a SQLite)
-- **`query<T = unknown>(sql: string, params?: unknown[]): Promise<T[]>`**: Ejecución de consultas `SELECT` sobre una conexión SQLite en **solo lectura**.
-- **`exec(sql: string): Promise<void>`**: Ejecución de sentencias DDL o DML de mutación. Requiere que el plugin declare `"permissions": ["db:write"]` y aprobación expresa del usuario.
-
----
-
-### 1.14 `app.native.invoke` (Escape Hatch)
-- **`invoke<T = unknown>(cmd: string, args?: Record<string, unknown>): Promise<T>`**: Mecanismo documentado de escape para comunicarse directamente con cualquier comando Tauri personalizado expuesto en el backend de Rust.
-
----
-
-## 2. Compatibilidad de Plataformas
-
-| Módulo | Windows | macOS | Linux |
-|---|---|---|---|
-| `fs` | Soportado (Win32) | Soportado (POSIX) | Soportado (POSIX) |
-| `path` | Soportado (`\`) | Soportado (`/`) | Soportado (`/`) |
-| `process` | Soportado (`CreateProcess`) | Soportado (`fork/exec`) | Soportado (`fork/exec`) |
-| `net` | Soportado (Rust/Reqwest) | Soportado (Rust/Reqwest) | Soportado (Rust/Reqwest) |
-| `clipboard` | Soportado | Soportado | Soportado (X11 / Wayland) |
-| `notifications` | Soportado (WinRT) | Soportado (UserNotifications) | Soportado (libnotify) |
-| `tray` | Soportado | Soportado | Soportado (AppIndicator) |
-| `shortcuts` | Soportado | Soportado | Soportado |
-| `keychain` | Soportado (Credential Mgr) | Soportado (Keychain Services) | Soportado (Secret Service) |
-| `db` | Soportado (rusqlite) | Soportado (rusqlite) | Soportado (rusqlite) |
+### 2.7 Otros Módulos Nativos
+- **`shell`**: `openPath(p: string)`, `openUrl(u: string)`, `showInFolder(p: string)`.
+- **`clipboard`**: `readText()`, `writeText(s: string)`, `readImage()`, `writeImage(b: Uint8Array)`.
+- **`notifications`**: `send(opts: { title: string; body?: string; icon?: string })`.
+- **`tray`**: `create(opts: TrayOptions)`, `update(h: TrayHandle, opts: Partial<TrayOptions>)`, `remove(h: TrayHandle)`.
+- **`shortcuts`**: `register(accel: string, cb: () => void)`, `unregister(accel: string)`.
+- **`windows`**: `create(opts: WindowOptions)`, `list(): Promise<WindowInfo[]>`, `focus(id: string)`, `close(id: string)`.
+- **`os`**: `platform(): 'windows' | 'macos' | 'linux'`, `arch(): string`, `version(): Promise<string>`, `locale(): string`.

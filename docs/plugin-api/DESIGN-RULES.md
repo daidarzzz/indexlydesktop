@@ -8,6 +8,7 @@ Este documento contiene las normas arquitectónicas y de ingeniería de obligato
 
 ### Regla 1: Un solo objeto raíz (`app`)
 - **Principio:** Toda la funcionalidad del host se expone a través de un único objeto `app`. No existen variables globales dispersas (`window.IndexLyCore`, `window.myUtils`, etc.).
+- **Aislamiento por Referencias Internas:** Se elimina el uso de `Object.freeze()` para evitar penalizaciones en optimizaciones monomórficas de V8 y fragilidad en grafos profundos. El host se aísla manteniendo su estado verdadero (registros de comandos, fuentes, hojas de vistas) en `Map` y `Set` privados del `PluginHost`. Aunque un plugin altere propiedades en su objeto `app` inyectado, el kernel despacha y gestiona a través de sus referencias privadas internas.
 - **HACER:**
   ```ts
   const sources = await this.app.library.getSources();
@@ -21,9 +22,9 @@ Este documento contiene las normas arquitectónicas y de ingeniería de obligato
 
 ---
 
-### Regla 2: Todo registro es reversible
-- **Principio:** Cualquier entidad registrada por un plugin (comandos, vistas, iconos de ribbon, items de status bar, listeners de eventos, atajos de teclado o intervalos) debe limpiarse de forma automática cuando el plugin se descarga.
-- **Mecanismo:** La clase base `Plugin` recopila cada registro mediante `this.register*()` o `this.add*()` y ejecuta su desregistro en orden inverso (LIFO) en `onunload()`.
+### Regla 2: Todo registro es reversible con Token de Generación
+- **Principio:** Cualquier entidad registrada por un plugin (comandos, vistas, ribbon, status bar, listeners de eventos, atajos de teclado o intervalos) debe limpiarse de forma automática en orden inverso (LIFO) cuando el plugin se descarga.
+- **Token de Generación (`generationId`):** Cada activación asigna un número de generación. Si una operación asíncrona intenta registrar algo cuando el plugin ya fue descargado o reiniciado, la llamada es descartada de inmediato al comprobar que su `generationId` ya no está activo.
 - **HACER:**
   ```ts
   export default class MyPlugin extends Plugin {
@@ -43,7 +44,7 @@ Este documento contiene las normas arquitectónicas y de ingeniería de obligato
   ```ts
   export default class MyPlugin extends Plugin {
     async onload() {
-      // PELIGRO: Listener huérfano tras la descarga del plugin
+      // PELIGRO: Listener e intervalo huérfanos tras la descarga
       window.addEventListener('resize', () => this.handleResize());
       setInterval(() => this.sync(), 60000);
     }
@@ -52,11 +53,12 @@ Este documento contiene las normas arquitectónicas y de ingeniería de obligato
 
 ---
 
-### Regla 3: Ciclo de vida explícito con límites de tiempo
-- **Principio:** Los puntos de entrada del plugin son únicamente `onload()` y `onunload()`. Ambos pueden ser asíncronos (`Promise<void>`), pero están sometidos a límites de tiempo rigurosos garantizados por el host.
-- **Límites:**
-  - `onload()`: Tiempo máximo de **10 segundos**. Si la promesa no se resuelve en este intervalo, la carga se aborta y el plugin se marca como fallido.
-  - `onunload()`: Tiempo máximo de **5 segundos**. Debe ser estrictamente **idempotente** (poder ejecutarse múltiples veces consecutivas sin arrojar error).
+### Regla 3: Ciclo de vida explícito y semántica realista de timeouts
+- **Principio:** Los puntos de entrada son exclusivamente `onload()` y `onunload()`. Ambos pueden ser asíncronos (`Promise<void>`).
+- **Semántica de Timeouts frente a V8:** En el hilo único de JavaScript, **un timer no puede interrumpir código síncrono bloqueante** (`while(true)`). Por tanto:
+  - El código síncrono se supervisa con `performance.now()`. Si supera los 250 ms, se emite una advertencia de bloqueo.
+  - Para promesas asíncronas: si `onload()` supera los **10 segundos**, el host aborta la espera, invalida el `generationId` del plugin, marca el plugin como `Failed` y ejecuta el descarte forzoso.
+  - Si `onunload()` supera los **5 segundos**, el host interrumpe la espera y purga todos los recursos asociados de forma idempotente.
 - **HACER:**
   ```ts
   async onload() {
@@ -71,24 +73,24 @@ Este documento contiene las normas arquitectónicas y de ingeniería de obligato
 - **NO HACER:**
   ```ts
   async onload() {
-    // PELIGRO: Bucle infinito o promesa no resuelta que congela la carga
-    await new Promise(() => {});
+    // PELIGRO: Bucle síncrono infinito que congela el hilo de la UI
+    while (true) {}
   }
   ```
 
 ---
 
 ### Regla 4: API aditiva para siempre
-- **Principio:** Ningún método, propiedad o evento público existente se renombra, modifica incompatiblemente o elimina dentro de la serie `1.x`. Si un diseño previo queda obsoleto, se marca como `@deprecated` con un aviso que especifique la alternativa y una ventana de coexistencia garantizada de al menos 12 meses.
+- **Principio:** Ningún método, propiedad o evento público existente se renombra, modifica de forma incompatible ni elimina dentro de la serie `1.x`. Si un diseño queda obsoleto, se marca como `@deprecated` con un aviso que especifique la alternativa y una ventana de coexistencia garantizada de al menos 12 meses.
 - **Regla de oro:** "Nunca cambiamos la semántica de algo existente; añadimos nuevas interfaces".
 
 ---
 
 ### Regla 5: Tipado de primera clase sin `any`
-- **Principio:** La API pública se entrega acompañada del paquete de tipos `@indexly/plugin-api` (o `indexly.d.ts`).
+- **Principio:** La API pública se entrega acompañada del paquete canónico `@indexly/plugin-api` (con `indexly.d.ts`).
 - **Normas de TypeScript:**
   - Modo estricto activado (`strict: true`, `noUncheckedIndexedAccess: true`).
-  - Queda prohibido el uso del tipo `any` en firmas de la API pública. Utilizar `unknown` con type guards, genéricos parametrizados o uniones discriminadas.
+  - Queda prohibido el uso del tipo `any` en firmas públicas. Se utiliza `unknown` con type guards, genéricos parametrizados o uniones discriminadas.
 - **HACER:**
   ```ts
   get<T = unknown>(key: string, defaultValue?: T): Promise<T>;
@@ -103,69 +105,59 @@ Este documento contiene las normas arquitectónicas y de ingeniería de obligato
 ---
 
 ### Regla 6: Máxima descubribilidad
-- **Principio:** La API debe estar diseñada para que un desarrollador pueda construir un plugin funcional e intuitivo leyendo únicamente los archivos de definición de tipos (`.d.ts`) y tres ejemplos estándar de referencia.
-- **Nombres consistentes:** Nombres de métodos en verbo imperativo (`addCommand`, `registerView`, `openSpotlight`, `getSources`).
-- **Autocompletado predictivo:** Todo método debe incluir JSDoc explicativo con ejemplos breves embebidos.
+- **Principio:** La API debe permitir construir un plugin útil leyendo únicamente los archivos `.d.ts` y tres ejemplos de referencia.
+- **Nombres consistentes:** Nombres de métodos en verbo imperativo (`addCommand`, `registerView`, `openSpotlight`, `getSources`). JSDoc exhaustivo con ejemplos breves embebidos en cada método.
 
 ---
 
-### Regla 7: Fallo aislado
-- **Principio:** Un error o excepción no capturada dentro de un plugin no debe propagarse al hilo principal de la aplicación ni romper las vistas del host.
-- **Mecanismo:** El host envuelve cada callback de plugin (`safeCall`). Si un plugin genera excepciones de forma reiterada (más de 10 errores en 5 minutos), el host emite una notificación al usuario y ofrece desactivar temporalmente el plugin sin reiniciar el programa.
+### Regla 7: Fallo aislado y atribución de errores globales
+- **Principio:** Un error o excepción no capturada en un plugin nunca debe propagarse al hilo principal ni romper las vistas del host.
+- **Atribución Precisa:**
+  - Todo script se evalúa con `//# sourceURL=indexly-plugin://${manifest.id}/main.js`.
+  - `window.onerror` y `window.onunhandledrejection` parsean la traza de pila (stack trace) para atribuir el error al plugin exacto responsable.
+  - `safeCall` mantiene el contexto activo del plugin durante la ejecución de callbacks.
+  - Si un plugin acumula más de 10 errores en 5 minutos, el host ofrece desactivarlo preventivamente.
 
 ---
 
-### Regla 8: Sin magia ni comportamiento oculto
-- **Principio:** Los métodos realizan exactamente lo que su nombre y contrato indican. No se realizan mutaciones colaterales no documentadas en el estado global.
-- **Transparencia:** Si un método interactúa con el disco o la red, el flujo debe ser explícito. No se realizan escrituras automáticas silenciosas en ubicaciones ajenas al directorio del plugin.
+### Regla 8: Sin magia ni permisos cosméticos
+- **Principio:** Lo que el plugin puede hacer está documentado explícitamente; no hay comportamiento oculto ni sandbox ilusorio.
+- **Transparencia en `db:write`:** `app.native.db.exec` no se bloquea en runtime. El campo `permissions: ["db:write"]` en el manifiesto informa al usuario durante la instalación y sirve para escaneos estáticos en el Hub.
 
 ---
 
 ### Regla 9: Rendimiento predecible
-- **Principio:** La API no realiza cómputo intensivo síncrono. Ningún callback síncrono del host o de plugins debe demorarse más de 16 ms para no degradar la tasa de 60 fps del hilo de la interfaz.
-- **Tareas pesadas:** Las operaciones de lectura masiva o análisis se realizan en streaming (`app.search.queryStream`) con soporte de cancelación cooperativa (`AbortSignal`) o delegadas a procesos secundarios nativos (`app.native.process.spawn`).
+- **Principio:** La API no realiza cómputo intensivo síncrono en el hilo de renderizado. Los callbacks síncronos deben resolverse en menos de 16 ms.
+- **Cancelación:** Las consultas masivas emplean streaming asíncrono (`app.search.queryStream`) con soporte obligatorio de `AbortSignal` cooperativo.
 
 ---
 
 ### Regla 10: El host manda en el DOM que posee
-- **Principio:** Los plugins nunca manipulan directamente nodos del DOM pertenecientes a los componentes esenciales del host (barra de búsqueda, panel lateral, árbol de ajustes).
-- **Contenedores dedicados:** El host entrega al plugin un elemento `HTMLElement` contenedor aislado para montar su interfaz (vistas, modales o secciones). El plugin es dueño absoluto de los hijos de ese contenedor y debe destruirlos limpiamente al cerrar la vista.
+- **Principio:** Los plugins nunca manipulan directamente nodos del DOM pertenecientes al host.
+- **Contenedores aislados:** El host entrega al plugin un elemento `HTMLElement` contenedor dedicado. El plugin monta su UI dentro y es responsable de su desmontaje sin alterar el DOM circundante.
 
 ---
 
 ## 2. Directrices Específicas por Capa
 
-### 2.1 Inyección de UI
-1. **Contenedores limpios:** Cuando se instancia una vista (`ItemView`) o un modal (`Modal`), el host provee `this.contentEl`. El plugin no debe adjuntar elementos a `document.body` excepto modales gestionados mediante `app.ui.Modal`.
-2. **Estilos con variables de tema:** Todos los estilos deben utilizar variables CSS estándar del host:
-   ```css
-   .my-plugin-card {
-     background-color: var(--indexly-bg-secondary);
-     color: var(--indexly-fg-primary);
-     border: 1px solid var(--indexly-border);
-     border-radius: var(--indexly-radius-md);
-   }
-   ```
-3. **Inyección de estilos de plugin:** El archivo `styles.css` del plugin se asocia a la etiqueta `<style data-plugin-id="...">` y se purga de inmediato en `onunload()`.
+### 2.1 Superficie Nativa y Namespace Público de `invoke`
+1. `app.native.invoke<T>(cmd, args)` queda formalmente restringido al namespace público de extensiones `plugin:*`. Queda prohibida la invocación de comandos internos privados (`core:*`, `__host_private_*`).
+2. Para secretos, credenciales y tokens, es obligatorio el uso de `app.native.keychain`. Queda prohibido `localStorage` o `data.json` para información sensible.
 
-### 2.2 Superficie Nativa (`app.native`)
-1. **Escape Hatch documentado:** `app.native.invoke` permite interactuar con comandos Tauri no expuestos explícitamente, pero las extensiones deben preferir siempre los módulos tipados (`fs`, `process`, `net`, `db`, `shortcuts`).
-2. **Acceso a Base de Datos:** `app.native.db` se encuentra restringida a solo lectura (`query`) por omisión. Toda mutación de esquema o inserción directa (`exec`) exige permiso expreso en el manifiesto y confirmación del usuario.
-3. **Secretos e información sensible:** Nunca emplear `data.json` o `localStorage` para tokens de acceso, API keys o contraseñas. Utilizar exclusivamente `app.native.keychain`.
+### 2.2 React y Bundling (Decisiones P1)
+1. **Formato de Bundle:** CommonJS empaquetado en `main.js`.
+2. **React:** Si el plugin utiliza React, empaqueta su propio runtime y monta su árbol mediante `createRoot(containerEl)` dentro del contenedor provisto por el host. El host no comparte su instancia de React para evitar discrepancias de versión.
 
-### 2.3 Manejo de Eventos y Reactividad
-1. **EventRef:** Toda llamada a `app.events.on()` o suscripción reactiva devuelve un identificador de suscripción (`EventRef`) que puede pasarse a `this.registerEvent(ref)`.
-2. **Namespacing:** Los eventos emitidos por extensiones deben seguir la convención `<plugin-id>:<nombre-evento>` para evitar colisiones con el bus central del host.
+### 2.3 Grandfathering de Plugins Legacy
+1. Plugins con cabecera `/* IndexLy Plugin ... */` o manifiestos v0 sin `schemaVersion` son normalizados automáticamente en memoria sin emitir errores de carga.
+2. `window.IndexLy` se mantiene como proxy hacia `app.legacy` con advertencias informativas de deprecación.
 
 ---
 
 ## 3. Checklist de Calidad para Autores y Revisores
 
-Antes de dar por finalizada cualquier funcionalidad en la plataforma de extensiones:
-
-- [ ] ¿Todos los métodos nuevos están reflejados en `indexly.d.ts`?
-- [ ] ¿Existe una prueba que ejecute `onload()` y `onunload()` 100 veces y verifique que no quedan listeners, atajos ni temporizadores activos?
-- [ ] ¿Todas las excepciones en callbacks de plugins están encapsuladas con `safeCall`?
-- [ ] ¿Se garantiza la ausencia del tipo `any` en los tipos públicos exportados?
-- [ ] ¿La interfaz respeta el snapshot generado por `@microsoft/api-extractor`?
-- [ ] ¿Las operaciones asíncronas de larga duración admiten un `AbortSignal` para su cancelación?
+- [ ] ¿Todos los métodos nuevos están reflejados en `indexly.d.ts` sin usar `any`?
+- [ ] ¿Pasa la prueba de fugas instrumentada de 100 ciclos en `@indexly/plugin-test-kit`?
+- [ ] ¿Todas las excepciones en callbacks están encapsuladas con `safeCall` y sourceURL virtual?
+- [ ] ¿El manifiesto incluye `schemaVersion: 1`, `hash`, `signature` y `sourceCommit`?
+- [ ] ¿Las operaciones asíncronas admiten cancelación cooperativa mediante `AbortSignal`?

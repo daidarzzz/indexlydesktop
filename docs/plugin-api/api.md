@@ -1,10 +1,10 @@
-# Especificación de la API Pública de IndexLy Desktop (`indexly`)
+# Especificación Completa de Tipos de la API Pública (`indexly`)
 
-Este documento especifica la interfaz completa exportada por el paquete npm `@indexly/plugin-api` (disponible en el runtime como `require('indexly')`).
+Este documento define la totalidad de las interfaces, tipos y clases públicas exportadas por el paquete `@indexly/plugin-api` (disponible como `require('indexly')`).
 
 ---
 
-## 1. El Objeto Raíz `app`
+## 1. El Grafo Raíz `App`
 
 ```ts
 export interface App {
@@ -24,140 +24,368 @@ export interface App {
   readonly ui: UiApi;
   readonly legacy: LegacyApi;
 }
+
+export interface FeatureSet {
+  has(feature: string): boolean;
+  list(): readonly string[];
+}
 ```
 
 ---
 
-## 2. Módulos de Dominio
+## 2. Tipos de Dominio y Modelos Centrales
 
-### 2.1 `app.library`
-Gestión de fuentes de datos (JSON, CSV, torrents, paquetes del Hub), colecciones y elementos indexados.
+```ts
+export interface UnifiedItem {
+  readonly id: string;
+  readonly source_id: string;
+  readonly source_name: string;
+  readonly title: string;
+  readonly subtitle?: string | null;
+  readonly file_size?: string | null;
+  readonly file_size_bytes?: number | null;
+  readonly link?: string | null;
+  readonly raw?: string | null;
+}
 
-- `getSources(): Promise<Source[]>`: Obtiene todas las fuentes configuradas en el host.
-- `getSource(id: string): Promise<Source | null>`: Obtiene una fuente específica por su identificador único.
-- `addSource(input: AddSourceInput): Promise<Source>`: Agrega una nueva fuente procesando su contenido.
-- `updateSource(id: string, patch: Partial<Source>): Promise<Source>`: Modifica metadatos o estado de una fuente.
-- `removeSource(id: string): Promise<void>`: Elimina la fuente y todos sus items asociados en SQLite.
-- `getItems(query: LibraryQuery): Promise<UnifiedItem[]>`: Recupera items filtrados por fuente o metadato.
-- `getItem(id: string): Promise<UnifiedItem | null>`: Recupera un item específico.
-- `on(event: 'source:added' | 'source:updated' | 'source:removed' | 'items:changed', cb: (payload: any) => void): EventRef`: Suscripción reactiva a cambios en la biblioteca.
+export interface Source {
+  readonly id: string;
+  readonly name: string;
+  readonly active: boolean;
+  readonly count: number;
+  readonly mapping?: MappingConfig | null;
+  readonly pkg?: PackageInfo | null;
+  readonly flags?: Record<string, boolean> | null;
+}
 
-### 2.2 `app.search`
-Motor de búsqueda de texto completo FTS5 y registro de proveedores externos.
+export interface MappingConfig {
+  titleKey?: string | null;
+  linkKey?: string | null;
+  subtitleKey?: string | null;
+}
 
-- `query(q: string, opts?: SearchOptions): Promise<SearchResults>`: Búsqueda paginada en el índice local.
-- `queryStream(q: string, opts?: SearchOptions): AsyncIterable<SearchHit>`: Streaming asíncrono con soporte cooperativo de `AbortSignal`.
-- `registerProvider(provider: SearchProvider): void`: Permite a un plugin actuar como motor de búsqueda secundario.
-- `unregisterProvider(id: string): void`: Desregistra un motor secundario.
-- `reindex(sourceId?: string): Promise<void>`: Fuerza la regeneración de tablas virtuales FTS5.
-- `on(event: 'query:before' | 'query:after', cb: (ctx: SearchContext) => void): EventRef`: Interceptores para enriquecer o filtrar resultados de búsqueda.
+export interface PackageInfo {
+  slug: string;
+  name?: string | null;
+}
 
-### 2.3 `app.workspace`
-Control de ventanas, vistas, pestañas, hojas (`WorkspaceLeaf`), barra de estado y Spotlight.
+export interface AddSourceInput {
+  name: string;
+  rawData?: unknown;
+  content?: string;
+  mapping?: MappingConfig;
+}
 
-- `getActiveWindow(): WindowInfo`: Ventana nativa en primer plano.
-- `getWindows(): WindowInfo[]`: Listado de ventanas activas.
-- `getLeaves(): WorkspaceLeaf[]`: Todas las hojas de trabajo montadas.
-- `getLeaf(type?: string): WorkspaceLeaf`: Obtiene o crea una hoja para un tipo de vista.
-- `revealLeaf(leaf: WorkspaceLeaf): void`: Concede foco y visibilidad a una hoja.
-- `detachLeavesOfType(type: string): void`: Cierra y destruye todas las hojas de un tipo específico.
-- `onLayoutReady(callback: () => void): void`: Ejecuta un callback cuando el árbol de la interfaz principal está completamente renderizado.
-- `openSpotlight(): Promise<void>`: Abre la ventana de búsqueda rápida flotante.
-- `on(event: 'layout-change' | 'window:open' | 'window:close', cb: (data: any) => void): EventRef`
+export interface LibraryQuery {
+  sourceId?: string;
+  limit?: number;
+  offset?: number;
+  filterLink?: 'link' | 'nolink' | null;
+}
 
-### 2.4 `app.commands`
-Paleta de comandos y atajos de teclado.
+export interface SearchOptions {
+  limit?: number;
+  offset?: number;
+  filterLink?: 'link' | 'nolink' | null;
+  sortBy?: 'relevance' | 'title-asc' | 'title-desc' | 'size-asc' | 'size-desc';
+  signal?: AbortSignal;
+}
 
-- `addCommand(command: Command): Command`: Registra un comando en la paleta global.
-- `removeCommand(id: string): void`: Elimina un comando.
-- `executeCommand(id: string, ...args: unknown[]): Promise<boolean>`: Dispara un comando por programa.
-- `listCommands(): Command[]`: Devuelve todos los comandos registrados.
-- `addContextMenuItem(item: ContextMenuItem): EventRef`: Añade opciones al menú contextual del ratón.
+export interface SearchResults {
+  readonly items: UnifiedItem[];
+  readonly total: number;
+  readonly active_sources_count: number;
+  readonly total_items_count: number;
+  readonly took_ms: number;
+}
 
-### 2.5 `app.settings`
-Persistencia y pestañas de configuración.
+export interface SearchHit {
+  readonly item: UnifiedItem;
+  readonly score: number;
+  readonly matchField: string;
+}
 
-- `registerSection(section: SettingSection): void`: Añade una sección a los ajustes generales.
-- `registerTab(tab: PluginSettingTab): void`: Añade una pestaña de configuración exclusiva para el plugin.
-- `get<T = unknown>(key: string, defaultValue?: T): Promise<T>`: Lee un valor persistente.
-- `set(key: string, value: unknown): Promise<void>`: Guarda un valor persistente.
-- `onChange(keyOrCb: string | ((key: string, val: unknown) => void), cb?: (val: unknown) => void): EventRef`: Escucha cambios en ajustes.
+export interface SearchProvider {
+  readonly id: string;
+  readonly name: string;
+  search(query: string, opts?: SearchOptions): Promise<SearchResults>;
+}
 
-### 2.6 `app.importer`
-Tubería de importación de archivos.
+export interface SearchContext {
+  query: string;
+  filterLink?: string | null;
+  sortBy: string;
+  limit: number;
+  offset: number;
+  results?: SearchResults;
+}
 
-- `registerImporter(importer: CustomImporter): EventRef`: Registra soporte para nuevas extensiones o formatos (`.epub`, `.m3u8`, `.xml`, etc.).
-- `importFile(pathOrContent: string, opts?: ImportOptions): Promise<Source[]>`: Procesa un archivo a través de la tubería de importadores.
-- `on(event: 'import:progress', cb: (p: ImportProgress) => void): EventRef`
+export interface Command {
+  id: string;
+  name: string;
+  icon?: string;
+  defaultShortcut?: string;
+  callback?: () => void | Promise<void>;
+  checkCallback?: (checking: boolean) => boolean | void;
+}
 
-### 2.7 `app.hub`
-Catálogo y ciclo de distribución de extensiones.
+export interface ContextMenuItem {
+  id: string;
+  title: string;
+  icon?: string;
+  onClick: () => void;
+}
 
-- `search(query: string): Promise<HubPluginSummary[]>`: Búsqueda de plugins en el índice del Hub.
-- `getPlugin(id: string): Promise<HubPluginDetail | null>`: Detalle del plugin, versiones y permisos.
-- `install(id: string, version?: string): Promise<void>`: Descarga y valida un plugin.
-- `update(id: string): Promise<void>`: Actualiza a una nueva versión informando de posibles permisos nuevos.
-- `uninstall(id: string): Promise<void>`: Desinstala el plugin de forma segura.
-- `listInstalled(): LoadedPluginInfo[]`: Plugins instalados localmente.
+export interface EventRef {
+  readonly id: string;
+  readonly event: string;
+}
 
-### 2.8 `app.ui`
-Clases y primitivas de interfaz de usuario:
+export interface WorkspaceLeaf {
+  readonly id: string;
+  view: View | null;
+  open(view: View): Promise<void>;
+  detach(): void;
+}
 
-- `Modal`: Ventana modal centrada con botón de cierre, accesibilidad y foco automático.
-- `PluginSettingTab`: Pestaña dedicada dentro del diálogo de preferencias.
-- `Setting`: Fila de configuración estándar (nombre, descripción, control interactivo).
-- `Notice`: Notificación flotante de corta duración en la esquina de la pantalla.
-- `Menu`: Menú contextual desplegable flotante.
-- `SuggestModal<T>` / `FuzzySuggestModal<T>`: Selector difuso interactivo para búsquedas rápidas.
-- `ItemView`: Vista acoplable dentro de un `WorkspaceLeaf`.
+export abstract class View {
+  public leaf: WorkspaceLeaf;
+  public containerEl: HTMLElement;
+  constructor(leaf: WorkspaceLeaf);
+  abstract getViewType(): string;
+  abstract getDisplayText(): string;
+  abstract getIcon(): string;
+  onOpen(): Promise<void>;
+  onClose(): Promise<void>;
+}
+
+export abstract class ItemView extends View {
+  public contentEl: HTMLElement;
+  constructor(leaf: WorkspaceLeaf);
+}
+```
 
 ---
 
-## 3. Ejemplo Canónico de Plugin
+## 3. La Clase Base `Plugin` y Jerarquía de Componentes
 
 ```ts
-import { Plugin, Notice, PluginSettingTab, Setting } from 'indexly';
+export class Component {
+  protected _loaded: boolean;
+  load(): Promise<void>;
+  unload(): Promise<void>;
+  register(cb: () => unknown): void;
+  registerEvent(ref: EventRef): void;
+  registerDomEvent<K extends keyof HTMLElementEventMap>(
+    el: HTMLElement | Window | Document,
+    type: K,
+    cb: (ev: HTMLElementEventMap[K]) => unknown,
+    options?: boolean | AddEventListenerOptions
+  ): void;
+  registerInterval(id: number): number;
+  registerTimeout(id: number): number;
+}
+
+export abstract class Plugin extends Component {
+  public readonly app: App;
+  public readonly manifest: PluginManifest;
+
+  constructor(app: App, manifest: PluginManifest);
+
+  abstract onload(): void | Promise<void>;
+  onunload(): void | Promise<void>;
+
+  addCommand(cmd: Command): Command;
+  addRibbonIcon(icon: string, title: string, cb: (ev: MouseEvent) => unknown): HTMLElement;
+  addStatusBarItem(): HTMLElement;
+  addSettingTab(tab: PluginSettingTab): void;
+  registerView(type: string, factory: (leaf: WorkspaceLeaf) => View): void;
+
+  loadData<T = unknown>(): Promise<T | null>;
+  saveData(data: unknown): Promise<void>;
+}
+```
+
+---
+
+## 4. Primitivas de UI (`app.ui`)
+
+```ts
+export abstract class Modal {
+  public readonly app: App;
+  public scope: unknown;
+  public containerEl: HTMLElement;
+  public modalEl: HTMLElement;
+  public titleEl: HTMLElement;
+  public contentEl: HTMLElement;
+
+  constructor(app: App);
+  open(): void;
+  close(): void;
+  abstract onOpen(): void;
+  abstract onClose(): void;
+}
+
+export abstract class PluginSettingTab {
+  public readonly app: App;
+  public readonly plugin: Plugin;
+  public containerEl: HTMLElement;
+
+  constructor(app: App, plugin: Plugin);
+  abstract display(): void;
+  hide(): void;
+}
+
+export class Setting {
+  public settingEl: HTMLElement;
+  public infoEl: HTMLElement;
+  public nameEl: HTMLElement;
+  public descEl: HTMLElement;
+  public controlEl: HTMLElement;
+
+  constructor(containerEl: HTMLElement);
+  setName(name: string): this;
+  setDesc(desc: string): this;
+  addText(cb: (text: TextComponent) => unknown): this;
+  addToggle(cb: (toggle: ToggleComponent) => unknown): this;
+  addButton(cb: (button: ButtonComponent) => unknown): this;
+  addDropdown(cb: (dropdown: DropdownComponent) => unknown): this;
+}
+
+export class Notice {
+  public noticeEl: HTMLElement;
+  constructor(message: string, duration?: number);
+  hide(): void;
+}
+```
+
+---
+
+## 5. Taxonomía Formal de Errores
+
+```ts
+export class IndexlyError extends Error {
+  public readonly code: string;
+  public readonly pluginId?: string;
+  public readonly cause?: unknown;
+
+  constructor(message: string, code: string, pluginId?: string, cause?: unknown) {
+    super(message);
+    this.name = 'IndexlyError';
+    this.code = code;
+    this.pluginId = pluginId;
+    this.cause = cause;
+  }
+}
+
+export class PluginLifecycleError extends IndexlyError {
+  constructor(message: string, pluginId: string, cause?: unknown) {
+    super(message, 'ERR_PLUGIN_LIFECYCLE', pluginId, cause);
+    this.name = 'PluginLifecycleError';
+  }
+}
+
+export class PluginTimeoutError extends IndexlyError {
+  constructor(message: string, pluginId: string, phase: 'onload' | 'onunload') {
+    super(message, phase === 'onload' ? 'ERR_PLUGIN_ONLOAD_TIMEOUT' : 'ERR_PLUGIN_ONUNLOAD_TIMEOUT', pluginId);
+    this.name = 'PluginTimeoutError';
+  }
+}
+
+export class NativeError extends IndexlyError {
+  constructor(message: string, code: string, cause?: unknown) {
+    super(message, code, undefined, cause);
+    this.name = 'NativeError';
+  }
+}
+
+export class StorageError extends IndexlyError {
+  constructor(message: string, code: string, pluginId?: string) {
+    super(message, code, pluginId);
+    this.name = 'StorageError';
+  }
+}
+
+export class ValidationError extends IndexlyError {
+  constructor(message: string, code: string) {
+    super(message, code);
+    this.name = 'ValidationError';
+  }
+}
+```
+
+---
+
+## 6. Ejemplo Canónico Estrictamente Tipado
+
+```ts
+import { App, Plugin, PluginManifest, PluginSettingTab, Setting, Notice } from 'indexly';
 
 export default class MiPlugin extends Plugin {
-  async onload() {
-    new Notice(`Plugin ${this.manifest.name} activado`);
+  private syncTimer: number | null = null;
+
+  constructor(app: App, manifest: PluginManifest) {
+    super(app, manifest);
+  }
+
+  async onload(): Promise<void> {
+    new Notice(`Plugin ${this.manifest.name} iniciado`);
 
     this.addCommand({
       id: 'saludar',
       name: 'Saludar al Usuario',
       callback: () => {
         new Notice('¡Hola desde IndexLy Desktop!');
-      }
+      },
     });
 
-    this.addRibbonIcon('star', 'Mi Plugin', () => {
+    this.addRibbonIcon('star', 'Abrir Spotlight', () => {
       this.app.workspace.openSpotlight();
     });
 
     this.addSettingTab(new MiConfigTab(this.app, this));
+
+    // Registro reversible de eventos y timers
+    this.registerDomEvent(window, 'resize', () => {
+      console.log('Ventana redimensionada');
+    });
+
+    this.syncTimer = this.registerInterval(
+      window.setInterval(() => {
+        this.sincronizar();
+      }, 60000)
+    );
   }
 
-  async onunload() {
-    new Notice(`Plugin ${this.manifest.name} desactivado`);
+  async onunload(): Promise<void> {
+    new Notice(`Plugin ${this.manifest.name} descargado limpiamente`);
+  }
+
+  private async sincronizar(): Promise<void> {
+    const sources = await this.app.library.getSources();
+    console.log(`Fuentes activas: ${sources.length}`);
   }
 }
 
 class MiConfigTab extends PluginSettingTab {
-  plugin: MiPlugin;
+  private pluginInstance: MiPlugin;
 
-  constructor(app: any, plugin: MiPlugin) {
+  constructor(app: App, plugin: MiPlugin) {
     super(app, plugin);
-    this.plugin = plugin;
+    this.pluginInstance = plugin;
   }
 
   display(): void {
     const { containerEl } = this;
-    containerEl.empty();
-    containerEl.createEl('h2', { text: 'Ajustes de Mi Plugin' });
+    containerEl.replaceChildren();
+
+    const header = document.createElement('h2');
+    header.textContent = `Ajustes de ${this.pluginInstance.manifest.name}`;
+    containerEl.appendChild(header);
 
     new Setting(containerEl)
-      .setName('Opción de Ejemplo')
-      .setDesc('Habilita la sincronización automática')
+      .setName('Sincronización Automática')
+      .setDesc('Habilita la sincronización periódica de fuentes en segundo plano.')
       .addToggle((toggle) => {
         toggle.setValue(true);
       });
