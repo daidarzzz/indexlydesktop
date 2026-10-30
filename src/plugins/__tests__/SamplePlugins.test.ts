@@ -121,4 +121,52 @@ describe('Sample Reference Plugins (Archivos reales en disco)', () => {
       expect(leaks.leakedListeners).toBe(0);
     });
   });
+
+  describe('4. Sample Scratchpad & Notes (com.indexly.sample-scratchpad-notes)', () => {
+    it('debe crear notas, persistir en disco, interactuar con portapapeles y descargarse sin fugas', async () => {
+      const pluginDir = path.join(rootDir, 'plugins/sample-scratchpad-notes');
+      const manifest = JSON.parse(fs.readFileSync(path.join(pluginDir, 'manifest.json'), 'utf8'));
+      const code = fs.readFileSync(path.join(pluginDir, 'main.js'), 'utf8');
+
+      // 1. Cargar el plugin
+      const plugin = await harness.loadPluginFromCode(code, manifest);
+      expect(plugin).toBeDefined();
+
+      // 2. Verificar notas iniciales y comandos
+      expect(plugin.state.notes.length).toBeGreaterThanOrEqual(1);
+
+      // 3. Abrir vista
+      await harness.app.commands.executeCommand('open-scratchpad');
+      const leaf = harness.app.workspace.getLeaf('indexly-scratchpad-view');
+      expect(leaf).not.toBeNull();
+      expect(leaf?.view?.getViewType()).toBe('indexly-scratchpad-view');
+
+      // 4. Crear nueva nota mediante comando
+      const initialCount = plugin.state.notes.length;
+      await harness.app.commands.executeCommand('new-note');
+      expect(plugin.state.notes.length).toBe(initialCount + 1);
+
+      // 5. Copiar nota al portapapeles nativo
+      await harness.app.commands.executeCommand('copy-active-note');
+
+      // 6. Verificar persistencia de datos
+      const saved = await plugin.loadData();
+      expect(saved.notes.length).toBe(plugin.state.notes.length);
+
+      // 7. Descargar plugin
+      await harness.unloadPlugin(plugin);
+
+      // 8. Verificar que no queden hojas abiertas
+      const openLeaves = harness.app.workspace
+        .getLeaves()
+        .filter((l: any) => l.view && l.view.getViewType() === 'indexly-scratchpad-view');
+      expect(openLeaves).toHaveLength(0);
+
+      // 9. Comprobar ausencia matemática de fugas
+      const leaks = harness.expectNoLeaks();
+      expect(leaks.passed).toBe(true);
+      expect(leaks.leakedTimers).toBe(0);
+      expect(leaks.leakedListeners).toBe(0);
+    });
+  });
 });

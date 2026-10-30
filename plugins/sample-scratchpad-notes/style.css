@@ -1,0 +1,223 @@
+/* plugins/sample-scratchpad-notes/style.css — Estilos del Bloc de Notas */
+
+.indexly-scratchpad-container {
+  display: flex;
+  height: 100%;
+  min-height: 540px;
+  background: #090d16;
+  border: 1px solid var(--color-border, #1a2332);
+  border-radius: 12px;
+  overflow: hidden;
+  color: var(--color-text, #fafafa);
+  font-family: var(--font-sans, system-ui, -apple-system, sans-serif);
+}
+
+/* Sidebar de notas */
+.scratchpad-sidebar {
+  width: 260px;
+  border-right: 1px solid var(--color-border, #1a2332);
+  background: rgba(14, 19, 31, 0.7);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.scratchpad-sidebar-header {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--color-border, #1a2332);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.scratchpad-sidebar-header h3 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0;
+  color: #f1f5f9;
+}
+
+.scratchpad-new-btn {
+  background: var(--color-primary, #0ea5e9);
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.scratchpad-new-btn:hover {
+  opacity: 0.9;
+}
+
+.scratchpad-notes-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.scratchpad-note-item {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: all 0.15s ease;
+}
+
+.scratchpad-note-item:hover {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.05);
+}
+
+.scratchpad-note-item.active {
+  background: rgba(14, 165, 233, 0.09);
+  border-color: rgba(56, 189, 248, 0.28);
+}
+
+.scratchpad-note-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: #f1f5f9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scratchpad-note-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 10px;
+  color: #64748b;
+  font-family: var(--font-mono, monospace);
+}
+
+.scratchpad-note-tag {
+  background: rgba(14, 165, 233, 0.1);
+  color: #38bdf8;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+/* Área principal de edición */
+.scratchpad-editor-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: #090d16;
+}
+
+.scratchpad-editor-header {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--color-border, #1a2332);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.scratchpad-title-input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 18px;
+  font-weight: 600;
+  color: #ffffff;
+  font-family: inherit;
+}
+
+.scratchpad-title-input::placeholder {
+  color: #475569;
+}
+
+.scratchpad-tags-input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 11.5px;
+  color: #94a3b8;
+  font-family: var(--font-mono, monospace);
+}
+
+.scratchpad-textarea {
+  flex: 1;
+  width: 100%;
+  padding: 18px 20px;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  color: #cbd5e1;
+  font-family: var(--font-mono, monospace);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.scratchpad-textarea::placeholder {
+  color: #334155;
+}
+
+/* Barra de herramientas inferior */
+.scratchpad-toolbar {
+  padding: 10px 18px;
+  border-top: 1px solid var(--color-border, #1a2332);
+  background: rgba(10, 14, 22, 0.6);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.scratchpad-stats {
+  font-size: 11px;
+  color: #64748b;
+  font-family: var(--font-mono, monospace);
+  display: flex;
+  gap: 12px;
+}
+
+.scratchpad-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.scratchpad-btn {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--color-border, #1a2332);
+  color: var(--color-text-secondary, #a1a9b8);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.scratchpad-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+  border-color: var(--color-border-hover, #24344f);
+}
+
+.scratchpad-btn.danger {
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.2);
+}
+
+.scratchpad-btn.danger:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: #fca5a5;
+  border-color: rgba(239, 68, 68, 0.4);
+}

@@ -1,0 +1,17 @@
+{
+  "id": "com.indexly.sample-scratchpad-notes",
+  "name": "IndexLy Scratchpad & Notes",
+  "version": "1.0.0",
+  "minAppVersion": "1.0.0",
+  "author": "IndexLy Core Team",
+  "description": "Bloc de notas rápido integrado con autoguardado, contador de palabras en tiempo real, atajos de teclado y sincronización con el motor de búsqueda.",
+  "permissions": [
+    "storage:data",
+    "commands:register",
+    "workspace:view",
+    "clipboard:write"
+  ],
+  "main": "main.js",
+  "styles": "style.css",
+  "enabled": true
+}
