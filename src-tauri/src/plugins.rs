@@ -17,6 +17,20 @@ pub struct PluginManager {
     loaded: Mutex<Vec<LoadedPlugin>>,
 }
 
+fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        if ty.is_dir() {
+            copy_dir_all(&entry.path(), &dst.join(entry.file_name()))?;
+        } else {
+            fs::copy(entry.path(), dst.join(entry.file_name()))?;
+        }
+    }
+    Ok(())
+}
+
 impl PluginManager {
     pub fn new<P: AsRef<Path>>(plugins_dir: P) -> Self {
         let p = plugins_dir.as_ref().to_path_buf();
@@ -38,16 +52,25 @@ impl PluginManager {
                 let path = entry.path();
                 if path.is_dir() {
                     let manifest_file = path.join("manifest.json");
-                    let js_file = path.join("index.js");
-                    let css_file = path.join("style.css");
-
-                    let js = fs::read_to_string(&js_file).ok();
-                    let css = fs::read_to_string(&css_file).ok();
 
                     if manifest_file.exists() {
                         if let Ok(content) = fs::read_to_string(&manifest_file) {
                             let clean_content = content.trim_start_matches('\u{feff}');
                             if let Ok(manifest) = serde_json::from_str::<PluginManifest>(clean_content) {
+                                let js = manifest
+                                    .main
+                                    .as_ref()
+                                    .and_then(|m| fs::read_to_string(path.join(m)).ok())
+                                    .or_else(|| fs::read_to_string(path.join("main.js")).ok())
+                                    .or_else(|| fs::read_to_string(path.join("index.js")).ok());
+
+                                let css = manifest
+                                    .styles
+                                    .as_ref()
+                                    .and_then(|s| fs::read_to_string(path.join(s)).ok())
+                                    .or_else(|| fs::read_to_string(path.join("style.css")).ok())
+                                    .or_else(|| fs::read_to_string(path.join("styles.css")).ok());
+
                                 list.push(LoadedPlugin {
                                     manifest,
                                     js_bundle: js,
@@ -55,14 +78,33 @@ impl PluginManager {
                                 });
                             }
                         }
-                    } else if let Some(ref js_code) = js {
-                        // Si no hay manifest.json, parsear cabecera /* IndexLy Plugin ... */
-                        if let Some(manifest) = parse_plugin_header(js_code) {
-                            list.push(LoadedPlugin {
-                                manifest,
-                                js_bundle: js,
-                                css_bundle: css,
-                            });
+                    } else {
+                        let js_file = if path.join("index.js").exists() {
+                            Some(path.join("index.js"))
+                        } else if path.join("main.js").exists() {
+                            Some(path.join("main.js"))
+                        } else {
+                            None
+                        };
+                        let css_file = if path.join("style.css").exists() {
+                            Some(path.join("style.css"))
+                        } else if path.join("styles.css").exists() {
+                            Some(path.join("styles.css"))
+                        } else {
+                            None
+                        };
+
+                        let js = js_file.and_then(|p| fs::read_to_string(p).ok());
+                        let css = css_file.and_then(|p| fs::read_to_string(p).ok());
+
+                        if let Some(ref js_code) = js {
+                            if let Some(manifest) = parse_plugin_header(js_code) {
+                                list.push(LoadedPlugin {
+                                    manifest,
+                                    js_bundle: js,
+                                    css_bundle: css,
+                                });
+                            }
                         }
                     }
                 } else if path.extension().and_then(|s| s.to_str()) == Some("js") {
@@ -85,37 +127,45 @@ impl PluginManager {
     }
 
     fn ensure_bundled_plugins(&self) {
-        // FIX BUG 12: Eliminar rutas absolutas hardcodeadas en máquina personal
         let env_path = std::env::var("INDEXLY_BUNDLED_PLUGINS_DIR").ok().map(std::path::PathBuf::from);
         let rel_plugins = Path::new("plugins");
+        let rel_parent_plugins = Path::new("..").join("plugins");
         let rel_public = Path::new("..").join("public").join("plugins");
 
-        let search_path = if let Some(p) = env_path.filter(|p| p.exists()) {
-            p
-        } else if rel_plugins.exists() {
-            rel_plugins.to_path_buf()
-        } else if rel_public.exists() {
-            rel_public
-        } else {
-            return;
-        };
+        let search_paths: Vec<PathBuf> = [
+            env_path.filter(|p| p.exists()),
+            if rel_plugins.exists() { Some(rel_plugins.to_path_buf()) } else { None },
+            if rel_parent_plugins.exists() { Some(rel_parent_plugins) } else { None },
+            if rel_public.exists() { Some(rel_public) } else { None },
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
 
-        if let Ok(entries) = fs::read_dir(search_path) {
-            for entry in entries.flatten() {
-                let p = entry.path();
-                if p.extension().and_then(|e| e.to_str()) == Some("js") {
-                    if let Some(stem) = p.file_stem().and_then(|s| s.to_str()) {
-                        let target_plugin_dir = self.plugins_dir.join(stem);
-                        let target_index_js = target_plugin_dir.join("index.js");
+        for search_path in search_paths {
+            if let Ok(entries) = fs::read_dir(&search_path) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.is_dir() {
+                        let dir_name = entry.file_name();
+                        let target_dir = self.plugins_dir.join(&dir_name);
+                        if !target_dir.exists() {
+                            let _ = copy_dir_all(&p, &target_dir);
+                        }
+                    } else if p.extension().and_then(|e| e.to_str()) == Some("js") {
+                        if let Some(stem) = p.file_stem().and_then(|s| s.to_str()) {
+                            let target_plugin_dir = self.plugins_dir.join(stem);
+                            let target_index_js = target_plugin_dir.join("index.js");
 
-                        if !target_index_js.exists() {
-                            let _ = fs::create_dir_all(&target_plugin_dir);
-                            if let Ok(code) = fs::read_to_string(&p) {
-                                let _ = fs::write(&target_index_js, &code);
-                                if let Some(mut manifest) = parse_plugin_header(&code) {
-                                    manifest.enabled = stem == "vistas" || stem == "readly";
-                                    if let Ok(m_json) = serde_json::to_string_pretty(&manifest) {
-                                        let _ = fs::write(target_plugin_dir.join("manifest.json"), m_json);
+                            if !target_plugin_dir.exists() {
+                                let _ = fs::create_dir_all(&target_plugin_dir);
+                                if let Ok(code) = fs::read_to_string(&p) {
+                                    let _ = fs::write(&target_index_js, &code);
+                                    if let Some(mut manifest) = parse_plugin_header(&code) {
+                                        manifest.enabled = stem == "vistas" || stem == "readly";
+                                        if let Ok(m_json) = serde_json::to_string_pretty(&manifest) {
+                                            let _ = fs::write(target_plugin_dir.join("manifest.json"), m_json);
+                                        }
                                     }
                                 }
                             }
@@ -273,5 +323,7 @@ pub fn parse_plugin_header(code: &str) -> Option<PluginManifest> {
         entry_ui: Some("index.js".to_string()),
         entry_backend: None,
         settings: None,
+        main: Some("index.js".to_string()),
+        styles: None,
     })
 }

@@ -59,6 +59,10 @@ pub struct SearchResult {
     pub took_ms: f64,
 }
 
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginManifest {
     pub id: String,
@@ -71,6 +75,7 @@ pub struct PluginManifest {
     pub capabilities: Vec<String>,
     #[serde(default)]
     pub author: Option<String>,
+    #[serde(default = "default_true")]
     pub enabled: bool,
     #[serde(default)]
     pub entry_ui: Option<String>,
@@ -78,6 +83,10 @@ pub struct PluginManifest {
     pub entry_backend: Option<String>,
     #[serde(default)]
     pub settings: Option<Vec<serde_json::Value>>,
+    #[serde(default)]
+    pub main: Option<String>,
+    #[serde(default)]
+    pub styles: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

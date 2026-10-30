@@ -809,6 +809,8 @@ pub fn install_hub_plugin(
         entry_ui: Some("index.js".to_string()),
         entry_backend: None,
         settings: None,
+        main: Some("index.js".to_string()),
+        styles: None,
     };
 
     let loaded = state
