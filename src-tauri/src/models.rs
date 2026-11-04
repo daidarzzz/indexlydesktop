@@ -33,15 +33,24 @@ pub struct SourceMappingInfo {
     pub sample_raw: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MappingConfig {
+    /// Las claves admiten rutas anidadas: "info.title", "links[0].url".
     #[serde(alias = "title_key")]
     pub title_key: Option<String>,
     #[serde(alias = "link_key")]
     pub link_key: Option<String>,
     #[serde(alias = "subtitle_key")]
     pub subtitle_key: Option<String>,
+    #[serde(alias = "size_key", default, skip_serializing_if = "Option::is_none")]
+    pub size_key: Option<String>,
+    /// Separador de columnas para CSV/TSV: ",", ";", "\t" o "|". `None` = detección automática.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delimiter: Option<String>,
+    /// Si la primera fila de un CSV es cabecera. `None` = sí.
+    #[serde(alias = "has_header", default, skip_serializing_if = "Option::is_none")]
+    pub has_header: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -130,6 +139,29 @@ pub struct FsEntry {
     pub path: String,
     pub is_dir: bool,
     pub size: Option<u64>,
+}
+
+/// Resultado de previsualizar un archivo antes de importarlo.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportPreview {
+    /// "json" | "jsonl" | "csv" | "tsv" | "text" | "envelope"
+    pub format: String,
+    /// Separador usado en CSV/TSV (",", ";", "\\t", "|")
+    pub delimiter: Option<String>,
+    pub has_header: bool,
+    /// Columnas o rutas elegibles como campo
+    pub columns: Vec<String>,
+    /// Primeras filas en bruto, alineadas con `columns`
+    pub rows: Vec<Vec<String>>,
+    /// Mapeo propuesto (detectado + lo elegido por el usuario)
+    pub mapping: MappingConfig,
+    /// Cómo quedarían los primeros elementos con ese mapeo
+    pub items: Vec<UnifiedItem>,
+    /// Elementos que se importarían en total
+    pub total: usize,
+    /// Fuentes dentro de un paquete de IndexLy (envelope v2)
+    pub envelope_sources: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

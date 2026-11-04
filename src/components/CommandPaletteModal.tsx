@@ -101,7 +101,7 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
     if (onOpenHub) {
       items.push({
         id: 'indexly:hub',
-        name: 'Hub: Conectar o explorar IndexLy Hub',
+        name: 'Hub: Explorar IndexlyHub',
         category: 'Sistema',
         shortcut: 'Hub',
         execute: () => {

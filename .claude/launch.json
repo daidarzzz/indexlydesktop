@@ -1,0 +1,26 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "indexly-vite",
+      "url": "http://localhost:1420",
+      "port": 1420
+    },
+    {
+      "name": "vite-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 1420
+    },
+    {
+      "name": "landing",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "C:/Users/david/AppData/Local/Temp/claude/5f782b4ceae5a5f9/9074a72a-0565-44a8-b7f2-2cc2406b285a/scratchpad/serve.js",
+        "landingDos",
+        "4173"
+      ],
+      "port": 4173
+    }
+  ]
+}

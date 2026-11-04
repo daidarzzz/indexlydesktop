@@ -1,23 +1,30 @@
 // src/App.tsx — Aplicación principal IndexLy Desktop
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Search, BookOpen, ArrowLeft } from 'lucide-react';
-import { Button } from './ui';
+import { ArrowLeft } from 'lucide-react';
+
 import { Header } from './components/Header';
 import { SourceManager } from './components/SourceManager';
+import { AppSidebar } from './components/AppSidebar';
+import { HubExplorer } from './components/HubExplorer';
 import { SearchBar } from './components/SearchBar';
 import { Controls } from './components/Controls';
 import { ResultsView } from './components/ResultsView';
 import { PluginModal } from './components/PluginModal';
-import { HubConnectModal } from './components/HubConnectModal';
 import { DocsView } from './components/DocsView';
 import { CommandPaletteModal } from './components/CommandPaletteModal';
+import { ImportPreviewModal, PendingImport } from './components/ImportPreviewModal';
+import { ExportSourcesModal } from './components/ExportSourcesModal';
 import { pluginHost } from './plugins/host/PluginHost';
 import { WorkspaceLeaf } from './plugins/types';
 import { pluginRegistry, SectionDefinition } from './plugins/PluginRegistry';
-import { LoadedPlugin, SearchResult, Source, ToastItem } from './types';
+import { LoadedPlugin, MappingConfig, SearchResult, Source, ToastItem } from './types';
 
 const VIEW_MODE_KEY = 'indexly_view_mode';
+const SIDEBAR_KEY = 'indexly_sidebar_collapsed';
+
+/** Vistas propias de la app (no son secciones de plugins). */
+const CORE_VIEWS = new Set(['__docs__', '__hub__']);
 
 
 /**
@@ -29,7 +36,6 @@ function MainApp() {
   const [sources, setSources] = useState<Source[]>([]);
   const [plugins, setPlugins] = useState<LoadedPlugin[]>([]);
   const [isPluginModalOpen, setIsPluginModalOpen] = useState(false);
-  const [isHubModalOpen, setIsHubModalOpen] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [workspaceLeaves, setWorkspaceLeaves] = useState<WorkspaceLeaf[]>([]);
 
@@ -38,19 +44,55 @@ function MainApp() {
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
   const sectionBodyRef = useRef<HTMLDivElement | null>(null);
 
-  // Hub Token
-  const [hubToken, setHubToken] = useState<string | null>(() => {
+  // El Hub ya no necesita token: se limpia el que pudiera quedar guardado
+  useEffect(() => {
     try {
-      return localStorage.getItem('indexly_hub_token') || null;
+      localStorage.removeItem('indexly_hub_token');
     } catch {
-      return null;
+      /* sin almacenamiento */
     }
-  });
+  }, []);
 
   // Estado de búsqueda
   const [query, setQuery] = useState('');
   const [filterLink, setFilterLink] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState('relevance');
+  // Barra lateral plegada a iconos (se recuerda entre sesiones)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(SIDEBAR_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_KEY, String(sidebarCollapsed));
+    } catch {
+      /* sin almacenamiento */
+    }
+  }, [sidebarCollapsed]);
+
+  // Por debajo de 900px la barra lateral se pliega sola a iconos
+  const [isNarrow, setIsNarrow] = useState(() =>
+    typeof window !== "undefined" && window.matchMedia ? window.matchMedia("(max-width: 900px)").matches : false
+  );
+  useEffect(() => {
+    if (!window.matchMedia) return;
+    const mq = window.matchMedia("(max-width: 900px)");
+    const onChange = () => setIsNarrow(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  // En estrecho, desplegar la barra la muestra flotando encima del contenido
+  const [sidebarOverlay, setSidebarOverlay] = useState(false);
+  useEffect(() => {
+    if (!isNarrow) setSidebarOverlay(false);
+  }, [isNarrow]);
+  const railMode = isNarrow ? !sidebarOverlay : sidebarCollapsed;
+  const isOverlay = isNarrow && sidebarOverlay;
+
   // La vista elegida (lista / cuadrícula) se recuerda entre sesiones
   const [viewMode, setViewMode] = useState<'list' | 'grid'>(() => {
     try {
@@ -198,7 +240,7 @@ function MainApp() {
   // Renderizar la sección activa en su contenedor DOM (para legacy sections y modern WorkspaceLeaves)
   useEffect(() => {
     if (activeSectionId && sectionBodyRef.current) {
-      if (activeSectionId === '__docs__') return;
+      if (activeSectionId && CORE_VIEWS.has(activeSectionId)) return;
 
       // 1. Comprobar si es una hoja de espacio de trabajo moderna (ej. ScratchpadView)
       const leaf = workspaceLeaves.find((l) => l.view && l.view.getViewType() === activeSectionId);
@@ -353,12 +395,57 @@ function MainApp() {
   }, [loadSources, loadPlugins]);
 
   // Importar archivo (soporta paquetes y sobres v2 de IndexLy)
-  const handleImportFile = async (name: string, content: string) => {
+  // Archivos esperando a pasar por la vista previa de importación
+  const [importQueue, setImportQueue] = useState<PendingImport[]>([]);
+  const [importQueueTotal, setImportQueueTotal] = useState(0);
+  const [isExportOpen, setIsExportOpen] = useState(false);
+
+  const nextImport = () => {
+    setImportQueue((q) => {
+      const rest = q.slice(1);
+      if (rest.length === 0) setImportQueueTotal(0);
+      return rest;
+    });
+  };
+
+  // Lee los archivos: .torrent como bytes (se importan directamente), .gz se
+  // descomprime y el resto pasa por la vista previa para elegir los campos.
+  const handleImportFiles = async (files: File[]) => {
+    const pending: PendingImport[] = [];
+    for (const file of files) {
+      const lower = file.name.toLowerCase();
+      try {
+        if (lower.endsWith('.torrent')) {
+          const bytes = Array.from(new Uint8Array(await file.arrayBuffer()));
+          const created = await invoke<Source[]>('import_torrent', { name: file.name, bytes });
+          showToast(`Torrent "${created[0]?.name ?? file.name}" importado`, 'success');
+          await loadSources();
+          continue;
+        }
+        if (lower.endsWith('.gz')) {
+          if (typeof DecompressionStream === 'undefined') throw new Error('Este sistema no puede descomprimir .gz');
+          const stream = file.stream().pipeThrough(new DecompressionStream('gzip'));
+          const text = await new Response(stream).text();
+          pending.push({ name: file.name.replace(/\.gz$/i, ''), content: text });
+          continue;
+        }
+        pending.push({ name: file.name, content: await file.text() });
+      } catch (err) {
+        showToast(`No se pudo leer "${file.name}": ${err}`, 'error');
+      }
+    }
+    if (pending.length) {
+      setImportQueue((q) => [...q, ...pending]);
+      setImportQueueTotal((t) => t + pending.length);
+    }
+  };
+
+  const handleImportFile = async (name: string, content: string, mapping: MappingConfig | null = null): Promise<boolean> => {
     try {
       const newSources = await invoke<Source[]>('import_file', {
         name,
         content,
-        mapping: null,
+        mapping,
       });
 
       if (newSources.length === 1) {
@@ -376,8 +463,10 @@ function MainApp() {
 
       await loadSources();
       executeSearch(query, filterLink, sortBy, 0, false);
+      return true;
     } catch (err: any) {
       showToast(`Error al importar: ${err}`, 'error');
+      return false;
     }
   };
 
@@ -441,29 +530,6 @@ function MainApp() {
     }
   };
 
-  // Guardar Token del Hub
-  const handleSaveHubToken = async (token: string): Promise<boolean> => {
-    try {
-      const res = await fetch('https://indexlyhub.daida.net/api/v1/favorites', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.status === 401) return false;
-      if (!res.ok) throw new Error(`El Hub respondió con código ${res.status}`);
-
-      setHubToken(token);
-      localStorage.setItem('indexly_hub_token', token);
-      showToast('Conectado a IndexlyHub con éxito', 'success');
-      return true;
-    } catch (err: any) {
-      throw err;
-    }
-  };
-
-  const handleDisconnectHub = () => {
-    setHubToken(null);
-    localStorage.removeItem('indexly_hub_token');
-    showToast('Desconectado de IndexlyHub', 'info');
-  };
 
   // Cargar más
   const handleLoadMore = () => {
@@ -494,132 +560,124 @@ function MainApp() {
     }),
   ];
 
+  const sectionTitle =
+    activeSectionId === '__docs__'
+      ? 'Documentación'
+      : activeSectionId === '__hub__'
+        ? 'Explorar Hub'
+        : pluginTabs.find((t) => t.id === activeSectionId)?.label || 'Sección';
+
   return (
-    <div className="App">
-      <Header
-        onOpenPlugins={() => setIsPluginModalOpen(true)}
+    <div className={`App app-shell ${railMode ? 'is-sidebar-rail' : ''} ${isOverlay ? 'is-sidebar-overlay' : ''}`}>
+      <AppSidebar
+        collapsed={railMode}
+        onToggleCollapsed={() => {
+          if (isNarrow) setSidebarOverlay((o) => !o);
+          else setSidebarCollapsed((c) => !c);
+        }}
+        activeId={activeSectionId}
+        onSelectCore={(id) => {
+          setActiveSectionId(id);
+          setSidebarOverlay(false);
+        }}
+        pluginItems={pluginTabs}
+        activeSourcesLabel={`${sources.filter((s) => s.active).length}/${sources.length} activas`}
         pluginsCount={plugins.filter((p) => p.manifest.enabled).length}
-        hubToken={hubToken}
-        onOpenHubModal={() => setIsHubModalOpen(true)}
-        onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
+        onOpenPlugins={() => setIsPluginModalOpen(true)}
+        sources={
+          <SourceManager
+            variant="sidebar"
+            sources={sources}
+            plugins={plugins}
+            onImportFiles={handleImportFiles}
+            onOpenExport={() => setIsExportOpen(true)}
+            onToggleSource={handleToggleSource}
+            onDeleteSource={handleDeleteSource}
+            onTogglePackage={handleTogglePackage}
+            onDeletePackage={handleDeletePackage}
+            onRefreshSources={loadSources}
+            onRefreshPlugins={loadPlugins}
+            showToast={showToast}
+          />
+        }
       />
 
-      <main className={`Search ${activeSectionId ? 'section-open' : ''}`}>
-        {/* Barra de navegación: Buscador / Documentación y, tras un separador, las
-            secciones y vistas de plugins. Mantiene #plugin-tabbar y .plx-tab por
-            compatibilidad con plugins que los usan. */}
-        <div id="plugin-tabbar" className="plugin-tabbar">
-          <div className="app-tabs" role="tablist" aria-label="Navegación principal">
-            <button
-              type="button"
-              role="tab"
-              className={`plx-tab app-tab ${!activeSectionId ? 'active' : ''}`}
-              aria-selected={!activeSectionId}
-              onClick={() => setActiveSectionId(null)}
-            >
-              <Search size={13} aria-hidden="true" />
-              <span>Buscador</span>
-            </button>
+      {isOverlay && (
+        <div className="app-sidebar-scrim" onClick={() => setSidebarOverlay(false)} aria-hidden="true" />
+      )}
 
-            <button
-              type="button"
-              role="tab"
-              className={`plx-tab app-tab ${activeSectionId === '__docs__' ? 'active' : ''}`}
-              aria-selected={activeSectionId === '__docs__'}
-              onClick={() => setActiveSectionId('__docs__')}
-            >
-              <BookOpen size={13} aria-hidden="true" />
-              <span>Documentación</span>
-            </button>
+      <div className="app-main">
+        <Header onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}>
+          {activeSectionId ? (
+            <div className="app-topbar__title">
+              <button
+                type="button"
+                className="app-topbar__back"
+                onClick={() => setActiveSectionId(null)}
+                aria-label="Volver al buscador"
+                title="Volver al buscador (Esc)"
+              >
+                <ArrowLeft size={15} />
+              </button>
+              <h1>{sectionTitle}</h1>
+            </div>
+          ) : (
+            <SearchBar query={query} onChange={setQuery} />
+          )}
+        </Header>
 
-            {pluginTabs.length > 0 && <span className="app-tabs__divider" aria-hidden="true" />}
+        <main className={`Search app-content ${activeSectionId ? 'section-open' : ''}`}>
+          {/* Vista integrada de Documentación */}
+          {activeSectionId === '__docs__' && <DocsView onClose={() => setActiveSectionId(null)} />}
 
-            {pluginTabs.map((tab) => {
-              const isActive = activeSectionId === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  role="tab"
-                  className={`plx-tab app-tab app-tab--plugin ${isActive ? 'active' : ''}`}
-                  aria-selected={isActive}
-                  onClick={tab.onSelect}
-                  title={tab.label}
-                >
-                  <span className="app-tab__label">{tab.label}</span>
-                </button>
-              );
-            })}
+          {/* Explorador del Hub, ahora como vista de la zona principal */}
+          {activeSectionId === '__hub__' && (
+            <div className="app-view app-view--hub">
+              <HubExplorer
+                onRefreshSources={loadSources}
+                onRefreshPlugins={loadPlugins}
+                plugins={plugins}
+                sources={sources}
+                showToast={showToast}
+              />
+            </div>
+          )}
+
+          {/* Contenedor de sección de plugin activa (ReadLy, GameVault…) */}
+          <div
+            id="plugin-sections"
+            className="plugin-sections"
+            style={{ display: activeSectionId && !CORE_VIEWS.has(activeSectionId) ? 'block' : 'none' }}
+            aria-live="polite"
+          >
+            <div ref={sectionBodyRef} className="plx-section-body" />
           </div>
 
-          <div className="plugin-tabbar__end">
-            <div className="indexly-ribbon-bar" id="indexly-ribbon-bar" />
-          </div>
-        </div>
+          <Controls
+            filterLink={filterLink}
+            onFilterChange={setFilterLink}
+            sortBy={sortBy}
+            onSortChange={setSortBy}
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
+          />
 
-        {/* Vista integrada de Documentación (Pestaña) */}
-        {activeSectionId === '__docs__' && (
-          <DocsView onClose={() => setActiveSectionId(null)} />
-        )}
+          <ResultsView
+            items={searchResult.items}
+            total={searchResult.total}
+            totalItemsCount={searchResult.total_items_count}
+            activeSourcesCount={searchResult.active_sources_count}
+            tookMs={searchResult.took_ms}
+            viewMode={viewMode}
+            onLoadMore={handleLoadMore}
+            hasMore={searchResult.items.length < searchResult.total}
+            isLoading={!hasLoadedOnce}
+          />
+        </main>
 
-        <SourceManager
-          sources={sources}
-          plugins={plugins}
-          onImportFile={handleImportFile}
-          onToggleSource={handleToggleSource}
-          onDeleteSource={handleDeleteSource}
-          onTogglePackage={handleTogglePackage}
-          onDeletePackage={handleDeletePackage}
-          onRefreshSources={loadSources}
-          onRefreshPlugins={loadPlugins}
-          showToast={showToast}
-          hubToken={hubToken}
-          onOpenHubModal={() => setIsHubModalOpen(true)}
-        />
-
-        {/* Contenedor de sección de plugin activa (ReadLy, etc.) */}
-        <div
-          id="plugin-sections"
-          className="plugin-sections"
-          style={{ display: activeSectionId && activeSectionId !== '__docs__' ? 'block' : 'none' }}
-          aria-live="polite"
-        >
-          <div className="plx-section-head">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setActiveSectionId(null)}
-              iconLeft={<ArrowLeft size={13} />}
-            >
-              Volver a la búsqueda
-            </Button>
-          </div>
-          <div ref={sectionBodyRef} className="plx-section-body" />
-        </div>
-
-        <SearchBar query={query} onChange={setQuery} />
-
-        <Controls
-          filterLink={filterLink}
-          onFilterChange={setFilterLink}
-          sortBy={sortBy}
-          onSortChange={setSortBy}
-          viewMode={viewMode}
-          onViewModeChange={setViewMode}
-        />
-
-        <ResultsView
-          items={searchResult.items}
-          total={searchResult.total}
-          totalItemsCount={searchResult.total_items_count}
-          activeSourcesCount={searchResult.active_sources_count}
-          tookMs={searchResult.took_ms}
-          viewMode={viewMode}
-          onLoadMore={handleLoadMore}
-          hasMore={searchResult.items.length < searchResult.total}
-          isLoading={!hasLoadedOnce}
-        />
-      </main>
+        {/* Barra de estado reactiva unificada (Plugin API v1) */}
+        <footer className="indexly-status-bar" id="indexly-status-bar" />
+      </div>
 
       {/* Modal genérico para plugins (invocado vía ctx.modal) */}
       <div
@@ -662,14 +720,6 @@ function MainApp() {
         onTogglePlugin={handleTogglePlugin}
       />
 
-      <HubConnectModal
-        isOpen={isHubModalOpen}
-        onClose={() => setIsHubModalOpen(false)}
-        token={hubToken}
-        onSaveToken={handleSaveHubToken}
-        onDisconnect={handleDisconnectHub}
-      />
-
       {toasts.length > 0 && (
         <div className="toast-container">
           {toasts.map((t) => (
@@ -680,16 +730,40 @@ function MainApp() {
         </div>
       )}
 
-      {/* Barra de estado reactiva unificada (Plugin API v1) */}
-      <footer className="indexly-status-bar" id="indexly-status-bar" />
-
       {/* Paleta de Comandos Interactiva (Ctrl+P / Cmd+P / Ctrl+K) */}
+      {/* Vista previa de importación (uno por archivo de la cola) */}
+      {importQueue.length > 0 && (
+        <ImportPreviewModal
+          file={importQueue[0]}
+          position={importQueueTotal - importQueue.length + 1}
+          total={importQueueTotal}
+          onCancel={() => {
+            setImportQueue([]);
+            setImportQueueTotal(0);
+          }}
+          onSkip={importQueue.length > 1 ? nextImport : undefined}
+          onConfirm={async (name, mapping) => {
+            const ok = await handleImportFile(name, importQueue[0].content, mapping);
+            if (ok) nextImport();
+          }}
+        />
+      )}
+
+      {isExportOpen && (
+        <ExportSourcesModal
+          open
+          sources={sources}
+          onClose={() => setIsExportOpen(false)}
+          showToast={showToast}
+        />
+      )}
+
       <CommandPaletteModal
         isOpen={isCommandPaletteOpen}
         onClose={() => setIsCommandPaletteOpen(false)}
         onOpenDocs={() => setActiveSectionId('__docs__')}
         onOpenPlugins={() => setIsPluginModalOpen(true)}
-        onOpenHub={() => setIsHubModalOpen(true)}
+        onOpenHub={() => setActiveSectionId('__hub__')}
         onFocusSearch={() => setActiveSectionId(null)}
       />
     </div>

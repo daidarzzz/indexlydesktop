@@ -32,7 +32,7 @@ describe('CommandPaletteModal (Paleta de Comandos Ctrl+P)', () => {
     expect(screen.getByPlaceholderText(/Escribe un comando o busca/i)).toBeDefined();
     expect(screen.getByText('Documentación: Abrir Guía Completa de IndexLy')).toBeDefined();
     expect(screen.getByText('Plugins: Abrir Gestor de Extensiones')).toBeDefined();
-    expect(screen.getByText('Hub: Conectar o explorar IndexLy Hub')).toBeDefined();
+    expect(screen.getByText('Hub: Explorar IndexlyHub')).toBeDefined();
   });
 
   it('muestra comandos dinámicos registrados por plugins en pluginHost.sharedCommands', () => {

@@ -1,7 +1,6 @@
 // src/components/DocsView.tsx — Vista de Documentación Técnica de IndexLy v2.0 integrada como Pestaña
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { IndexlyLogo } from './IndexlyLogo';
-import { Button } from '../ui';
 import {
   Search,
   Cpu,
@@ -22,6 +21,7 @@ import {
   AlertCircle,
   Database,
   ArrowLeft,
+  ArrowRight,
   X,
 } from 'lucide-react';
 
@@ -41,7 +41,7 @@ interface DocSection {
   render: (copyCode: CopyCodeFn, copiedId: string | null) => React.ReactNode;
 }
 
-export const DocsView: React.FC<DocsViewProps> = ({ onClose }) => {
+export const DocsView: React.FC<DocsViewProps> = (_props) => {
   const [activeSectionId, setActiveSectionId] = useState<string>('overview');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -1074,116 +1074,170 @@ describe('MyPlugin Lifecycle & Leaks', () => {
   }, [sections, searchQuery]);
 
   const activeSection = sections.find((s) => s.id === activeSectionId) || sections[0];
+  const activeIndex = sections.findIndex((s) => s.id === activeSection.id);
+  const prevSection = activeIndex > 0 ? sections[activeIndex - 1] : null;
+  const nextSection = activeIndex < sections.length - 1 ? sections[activeIndex + 1] : null;
+
+  // Índice "En esta página": se construye a partir de los títulos del artículo
+  const articleRef = useRef<HTMLDivElement | null>(null);
+  const [toc, setToc] = useState<Array<{ id: string; text: string }>>([]);
+  const [activeHeading, setActiveHeading] = useState<string | null>(null);
+
+  useEffect(() => {
+    const root = articleRef.current;
+    if (!root) return;
+    const headings = Array.from(root.querySelectorAll<HTMLElement>('h3.doc-heading'));
+    const items = headings.map((h, i) => {
+      if (!h.id) h.id = `${activeSection.id}-h${i}`;
+      return { id: h.id, text: h.textContent || '' };
+    });
+    setToc(items);
+    setActiveHeading(items[0]?.id ?? null);
+
+    if (!items.length || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        const visible = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+        if (visible[0]) setActiveHeading(visible[0].target.id);
+      },
+      { rootMargin: '-80px 0px -65% 0px' }
+    );
+    headings.forEach((h) => io.observe(h));
+    return () => io.disconnect();
+  }, [activeSection.id]);
+
+  const goTo = (id: string) => {
+    setActiveSectionId(id);
+    window.scrollTo({ top: 0 });
+  };
+
+  const scrollToHeading = (id: string) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const top = el.getBoundingClientRect().top + window.scrollY - 76;
+    window.scrollTo({ top, behavior: 'smooth' });
+  };
+
+  const ActiveIcon = activeSection.icon;
 
   return (
-    <div className="docs-tab-container" role="region" aria-label="Documentación Técnica">
-      {/* Barra superior de la pestaña */}
-      <div className="docs-tab-toolbar">
-        <div className="docs-toolbar-left">
-          <div className="docs-toolbar-badge">
-            <IndexlyLogo size={16} style={{ borderRadius: "3px" }} />
-            <span>Documentación Técnica</span>
+    <div className="docs" role="region" aria-label="Documentación Técnica">
+      {/* Índice de temas (fijo al hacer scroll) */}
+      <aside className="docs__nav">
+        <div className="docs__brand">
+          <IndexlyLogo size={18} style={{ borderRadius: '5px' }} />
+          <div>
+            <strong>Documentación Técnica</strong>
+            <span>IndexLy Platform v2.0</span>
           </div>
-          <span className="docs-toolbar-sub">IndexLy Platform v2.0 • Obsidian Trust Model</span>
         </div>
 
-        <div className="docs-toolbar-right">
-          {onClose && (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={onClose}
-              title="Volver a la vista del buscador"
-              iconLeft={<ArrowLeft size={13} />}
-            >
-              Volver al Buscador
-            </Button>
+        <label className="docs__search">
+          <Search size={13} aria-hidden="true" />
+          <input
+            type="text"
+            placeholder="Filtrar temas, APIs o código..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            aria-label="Filtrar documentación"
+          />
+          {searchQuery && (
+            <button type="button" onClick={() => setSearchQuery('')} className="docs__search-clear" aria-label="Limpiar búsqueda">
+              <X size={12} />
+            </button>
           )}
+        </label>
 
-          <a
-            href="https://github.com/daidarzzz/indexly"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="docs-header-link"
-            title="Ver repositorio en GitHub"
-          >
-            <span>GitHub</span>
-            <ExternalLink size={11} />
+        <nav className="docs__list" aria-label="Índice de documentación">
+          {filteredSections.length === 0 ? (
+            <div className="docs__empty">No se encontraron secciones para «{searchQuery}»</div>
+          ) : (
+            filteredSections.map((sec) => {
+              const Icon = sec.icon;
+              const isActive = sec.id === activeSection.id;
+              return (
+                <button
+                  key={sec.id}
+                  type="button"
+                  onClick={() => goTo(sec.id)}
+                  className={`docs__item ${isActive ? 'active' : ''}`}
+                  aria-current={isActive ? 'page' : undefined}
+                >
+                  <span className="docs__item-icon" aria-hidden="true">
+                    <Icon size={14} />
+                  </span>
+                  <span className="docs__item-text">
+                    <span className="docs__item-title">{sec.title}</span>
+                    <span className="docs__item-sub">{sec.badge}</span>
+                  </span>
+                </button>
+              );
+            })
+          )}
+        </nav>
+
+        <div className="docs__nav-foot">
+          <span>RFC-0001 Compliant</span>
+          <a href="https://github.com/daidarzzz/indexly" target="_blank" rel="noopener noreferrer" title="Ver repositorio en GitHub">
+            GitHub <ExternalLink size={11} />
           </a>
         </div>
-      </div>
+      </aside>
 
-      {/* Grid principal de la pestaña (Sidebar lateral + Panel de lectura) */}
-      <div className="docs-tab-body">
-        {/* Sidebar lateral */}
-        <aside className="docs-tab-sidebar">
-          {/* Buscador de temas */}
-          <div className="docs-search-box">
-            <div className="docs-search-input-wrap">
-              <Search size={13} color="var(--color-text-tertiary)" />
-              <input
-                type="text"
-                placeholder="Filtrar temas, APIs o código..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="docs-search-input"
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery('')}
-                  className="docs-search-clear"
-                  title="Limpiar búsqueda"
-                >
-                  <X size={12} />
-                </button>
-              )}
-            </div>
-          </div>
+      {/* Artículo */}
+      <main className="docs__main">
+        <div className="docs__crumbs">
+          <ActiveIcon size={13} aria-hidden="true" />
+          <span>Documentación</span>
+          <ChevronRight size={12} aria-hidden="true" />
+          <span className="docs__crumbs-current">{activeSection.title}</span>
+        </div>
 
-          {/* Lista de temas */}
-          <nav className="docs-tab-nav" aria-label="Índice de documentación">
-            {filteredSections.length === 0 ? (
-              <div className="docs-empty-search">
-                No se encontraron secciones para «{searchQuery}»
-              </div>
-            ) : (
-              filteredSections.map((sec) => {
-                const Icon = sec.icon;
-                const isActive = sec.id === activeSection.id;
-                return (
-                  <button
-                    key={sec.id}
-                    type="button"
-                    onClick={() => setActiveSectionId(sec.id)}
-                    className={`docs-nav-item ${isActive ? 'active' : ''}`}
-                  >
-                    <div className="docs-nav-icon">
-                      <Icon size={14} color={isActive ? '#38bdf8' : 'var(--color-text-secondary)'} />
-                    </div>
-                    <div className="docs-nav-text">
-                      <span className="docs-nav-title">{sec.title}</span>
-                      <span className="docs-nav-sub">{sec.badge}</span>
-                    </div>
-                    {isActive && <ChevronRight size={13} color="#38bdf8" style={{ marginLeft: 'auto' }} />}
-                  </button>
-                );
-              })
-            )}
-          </nav>
-
-          {/* Pie de sidebar */}
-          <div className="docs-tab-footer">
-            <span>RFC-0001 Compliant</span>
-            <span className="docs-mono-sub">Native IPC</span>
-          </div>
-        </aside>
-
-        {/* Panel de lectura */}
-        <main className="docs-tab-content">
+        <div ref={articleRef} key={activeSection.id} className="docs__article">
           {activeSection.render(handleCopyCode, copiedId)}
-        </main>
-      </div>
+        </div>
+
+        {/* Navegación anterior / siguiente */}
+        <div className="docs__pager">
+          {prevSection ? (
+            <button type="button" className="docs__pager-btn" onClick={() => goTo(prevSection.id)}>
+              <span className="docs__pager-label">
+                <ArrowLeft size={12} /> Anterior
+              </span>
+              <span className="docs__pager-title">{prevSection.title}</span>
+            </button>
+          ) : (
+            <span />
+          )}
+          {nextSection && (
+            <button type="button" className="docs__pager-btn is-next" onClick={() => goTo(nextSection.id)}>
+              <span className="docs__pager-label">
+                Siguiente <ArrowRight size={12} />
+              </span>
+              <span className="docs__pager-title">{nextSection.title}</span>
+            </button>
+          )}
+        </div>
+      </main>
+
+      {/* En esta página */}
+      <aside className="docs__toc" aria-label="En esta página">
+        {toc.length > 0 && (
+          <>
+            <span className="docs__toc-title">En esta página</span>
+            {toc.map((h) => (
+              <button
+                key={h.id}
+                type="button"
+                className={`docs__toc-item ${activeHeading === h.id ? 'active' : ''}`}
+                onClick={() => scrollToHeading(h.id)}
+              >
+                {h.text}
+              </button>
+            ))}
+          </>
+        )}
+      </aside>
     </div>
   );
 };

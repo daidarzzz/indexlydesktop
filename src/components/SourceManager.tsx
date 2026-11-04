@@ -4,13 +4,16 @@ import { Source, SourceActionConfig, LoadedPlugin } from '../types';
 import { HubExplorer } from './HubExplorer';
 import { MappingModal } from './MappingModal';
 import { pluginRegistry } from '../plugins/PluginRegistry';
-import { Folder, Upload, Trash2, ChevronDown, ChevronRight, Globe, Layers, Settings, Plus } from 'lucide-react';
-import { IconButton, Switch } from '../ui';
+import { Folder, Upload, Trash2, ChevronDown, ChevronRight, Globe, Layers, Settings, Plus, Download } from 'lucide-react';
+import { Button, IconButton, Modal, Switch } from '../ui';
 
 interface SourceManagerProps {
   sources: Source[];
   plugins?: LoadedPlugin[];
-  onImportFile: (name: string, content: string) => Promise<void>;
+  /** Recibe los archivos elegidos o soltados; la App muestra la vista previa. */
+  onImportFiles: (files: File[]) => void;
+  /** Abre el diálogo de exportar fuentes. */
+  onOpenExport?: () => void;
   onToggleSource: (id: string, active: boolean) => Promise<void>;
   onDeleteSource: (id: string) => Promise<void>;
   onTogglePackage: (slug: string, active: boolean) => Promise<void>;
@@ -18,8 +21,8 @@ interface SourceManagerProps {
   onRefreshSources: () => Promise<void>;
   onRefreshPlugins?: () => Promise<void>;
   showToast: (msg: string, type?: 'success' | 'warning' | 'error' | 'info') => void;
-  hubToken: string | null;
-  onOpenHubModal: () => void;
+  /** "sidebar": versión compacta para la barra lateral (sin pestañas del Hub). */
+  variant?: "card" | "sidebar";
 }
 
 /** Degradado estable por nombre (mismo tono que en los resultados). */
@@ -53,7 +56,8 @@ function getAvatar(name: string): { emoji: string | null; initial: string; label
 export const SourceManager: React.FC<SourceManagerProps> = ({
   sources,
   plugins = [],
-  onImportFile,
+  onImportFiles,
+  onOpenExport,
   onToggleSource,
   onDeleteSource,
   onTogglePackage,
@@ -61,9 +65,14 @@ export const SourceManager: React.FC<SourceManagerProps> = ({
   onRefreshSources,
   onRefreshPlugins,
   showToast,
-  hubToken,
-  onOpenHubModal,
+  variant = "card",
 }) => {
+  const isSidebar = variant === "sidebar";
+  // En la barra lateral las cifras grandes se abrevian (23.601 → 23,6 mil)
+  const fmtCount = (n: number) =>
+    isSidebar && n >= 10000
+      ? new Intl.NumberFormat("es-ES", { notation: "compact", maximumFractionDigits: 1 }).format(n)
+      : n.toLocaleString("es-ES");
   const [collapsed, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem('indexly_fuentes_collapsed') === 'true';
@@ -81,6 +90,23 @@ export const SourceManager: React.FC<SourceManagerProps> = ({
     return {};
   });
   const [editingSource, setEditingSource] = useState<Source | null>(null);
+  // Índice o carpeta pendiente de confirmar su borrado
+  const [pendingDelete, setPendingDelete] = useState<
+    { kind: "source" | "package"; id: string; name: string; count: number; sources?: number } | null
+  >(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    setDeleting(true);
+    try {
+      if (pendingDelete.kind === "package") await onDeletePackage(pendingDelete.id);
+      else await onDeleteSource(pendingDelete.id);
+      setPendingDelete(null);
+    } finally {
+      setDeleting(false);
+    }
+  };
   const [sourceActions, setSourceActions] = useState<SourceActionConfig[]>(pluginRegistry.getSourceActions());
 
   useEffect(() => {
@@ -121,27 +147,17 @@ export const SourceManager: React.FC<SourceManagerProps> = ({
     });
   };
 
-  const handleFileInput = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
-    if (!files || files.length === 0) return;
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const text = await file.text();
-      await onImportFile(file.name, text);
-    }
-    e.target.value = '';
+    if (files && files.length > 0) onImportFiles(Array.from(files));
+    e.target.value = "";
   };
 
-  const handleDrop = async (e: React.DragEvent) => {
+  const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
     const files = e.dataTransfer.files;
-    if (!files || files.length === 0) return;
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const text = await file.text();
-      await onImportFile(file.name, text);
-    }
+    if (files && files.length > 0) onImportFiles(Array.from(files));
   };
 
   const activeSources = sources.filter((s) => s.active).length;
@@ -167,7 +183,13 @@ export const SourceManager: React.FC<SourceManagerProps> = ({
 
   // Fila de una fuente (suelta o dentro de una carpeta)
   const renderSourceRow = (s: Source, isChild = false) => {
-    const avatar = getAvatar(s.name);
+    // Dentro de una carpeta, "gamepack-1 / pc" se muestra como "pc"
+    const pkgName = s.pkg?.name || s.pkg?.slug;
+    const shownName =
+      isChild && pkgName && s.name.toLowerCase().startsWith(pkgName.toLowerCase())
+        ? s.name.slice(pkgName.length).replace(/^\s*[/\\:·-]\s*/, "").trim() || s.name
+        : s.name;
+    const avatar = getAvatar(shownName);
     return (
       <div
         key={s.id}
@@ -185,8 +207,7 @@ export const SourceManager: React.FC<SourceManagerProps> = ({
         <div className="src-row__text">
           <strong title={s.name}>{avatar.label}</strong>
           <small>
-            {s.count.toLocaleString('es-ES')} elementos
-            {s.mapping && <span className="src-row__tag">mapeado</span>}
+            {fmtCount(s.count)} elementos
           </small>
         </div>
 
@@ -220,7 +241,7 @@ export const SourceManager: React.FC<SourceManagerProps> = ({
             size="sm"
             variant="danger"
             className="src-row__hover-btn"
-            onClick={() => onDeleteSource(s.id)}
+            onClick={() => setPendingDelete({ kind: "source", id: s.id, name: s.name, count: s.count })}
           >
             <Trash2 size={13} />
           </IconButton>
@@ -238,7 +259,7 @@ export const SourceManager: React.FC<SourceManagerProps> = ({
 
   return (
     <section
-      className={`index-manager-card srcm ${dragOver ? 'drag-over' : ''} ${collapsed ? 'is-collapsed' : ''}`}
+      className={`index-manager-card srcm ${isSidebar ? "srcm--sidebar" : ""} ${dragOver ? 'drag-over' : ''} ${collapsed ? 'is-collapsed' : ''}`}
       aria-label="Gestor de fuentes"
       onDragOver={(e) => {
         e.preventDefault();
@@ -251,6 +272,7 @@ export const SourceManager: React.FC<SourceManagerProps> = ({
       onDrop={handleDrop}
     >
       {/* Cabecera: título + resumen a la izquierda; pestañas y acciones a la derecha */}
+      {!isSidebar && (
       <header className="srcm__head">
         <button
           type="button"
@@ -274,7 +296,7 @@ export const SourceManager: React.FC<SourceManagerProps> = ({
         </button>
 
         <div className="srcm__actions">
-          {!collapsed && (
+          {!collapsed && !isSidebar && (
             <div className="srcm__tabs" role="tablist" aria-label="Secciones del gestor de fuentes">
               <button
                 type="button"
@@ -291,28 +313,76 @@ export const SourceManager: React.FC<SourceManagerProps> = ({
                 aria-selected={activeTab === 'hub'}
                 className={`srcm__tab ${activeTab === 'hub' ? 'active' : ''}`}
                 onClick={() => setActiveTab('hub')}
-                title={hubToken ? 'IndexlyHub conectado' : 'IndexlyHub sin conectar'}
               >
                 <Globe size={12} aria-hidden="true" />
                 Hub
-                <span className={`srcm__hub-dot ${hubToken ? 'is-on' : ''}`} aria-hidden="true" />
               </button>
             </div>
           )}
 
           <label className="srcm__add" title="Añadir archivo (JSON, Envelopes v2, CSV, TSV, TXT)">
             <Plus size={14} aria-hidden="true" />
-            <span>Añadir</span>
+            {!isSidebar && <span>Añadir</span>}
             <input
               type="file"
               multiple
-              accept=".json,.csv,.tsv,.txt"
+              accept=".json,.jsonl,.ndjson,.csv,.tsv,.txt,.gz,.torrent"
               onChange={handleFileInput}
               style={{ display: 'none' }}
             />
           </label>
         </div>
       </header>
+      )}
+      {isSidebar && (
+        /* Cabecera compacta, igual que "PLUGINS" en la barra lateral */
+        <div
+          className="srcm__side-head"
+          title={`${activeSources} de ${sources.length} fuentes activas · ${totalElements.toLocaleString('es-ES')} elementos`}
+        >
+          <button
+            type="button"
+            className="srcm__side-toggle"
+            onClick={handleToggleCollapsed}
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? 'Mostrar fuentes' : 'Ocultar fuentes'}
+          >
+            <span>Fuentes</span>
+            {sources.length > 0 && (
+              <span className="srcm__side-count">
+                {activeSources}/{sources.length}
+              </span>
+            )}
+            <ChevronDown size={12} className="srcm__side-chevron" aria-hidden="true" />
+          </button>
+
+          {/* Exportar: discreto, sólo visible al pasar por la cabecera de fuentes */}
+          {onOpenExport && sources.length > 0 && (
+            <button
+              type="button"
+              className="srcm__side-add srcm__side-export"
+              onClick={onOpenExport}
+              title="Exportar fuentes"
+              aria-label="Exportar fuentes"
+            >
+              <Download size={13} aria-hidden="true" />
+            </button>
+          )}
+
+          <label className="srcm__side-add" title="Añadir archivo (JSON, JSONL, CSV, TSV, TXT, .torrent)">
+            <Plus size={14} aria-hidden="true" />
+            <span className="sr-only">Añadir fuente</span>
+            <input
+              type="file"
+              multiple
+              accept=".json,.jsonl,.ndjson,.csv,.tsv,.txt,.gz,.torrent"
+              onChange={handleFileInput}
+              style={{ display: 'none' }}
+            />
+          </label>
+        </div>
+      )}
+
 
       {/* Capa visible mientras se arrastran archivos encima de la tarjeta */}
       {dragOver && (
@@ -325,10 +395,8 @@ export const SourceManager: React.FC<SourceManagerProps> = ({
       {!collapsed && (
         <>
 
-          {activeTab === 'hub' ? (
+          {activeTab === 'hub' && !isSidebar ? (
             <HubExplorer
-              hubToken={hubToken}
-              onOpenConnectModal={onOpenHubModal}
               onRefreshSources={onRefreshSources}
               onRefreshPlugins={onRefreshPlugins}
               plugins={plugins}
@@ -396,12 +464,12 @@ export const SourceManager: React.FC<SourceManagerProps> = ({
                           <div className="src-row__text">
                             <strong title={g.name}>{pkgAvatar.label}</strong>
                             <small>
-                              {g.items.length} fuentes · {totalItems.toLocaleString('es-ES')} elementos
+                              {g.items.length} fuentes · {fmtCount(totalItems)}{isSidebar ? '' : ' elementos'}
                             </small>
                           </div>
 
                           <div className="src-row__actions">
-                            {!allActive && !noneActive && (
+                            {!allActive && !noneActive && !isSidebar && (
                               <span className="src-row__partial" title={`${activeCount} de ${g.items.length} fuentes activas`}>
                                 {activeCount}/{g.items.length}
                               </span>
@@ -411,7 +479,7 @@ export const SourceManager: React.FC<SourceManagerProps> = ({
                               size="sm"
                               variant="danger"
                               className="src-row__hover-btn"
-                              onClick={() => onDeletePackage(entry.slug)}
+                              onClick={() => setPendingDelete({ kind: "package", id: entry.slug, name: g.name, count: totalItems, sources: g.items.length })}
                             >
                               <Trash2 size={13} />
                             </IconButton>
@@ -439,6 +507,39 @@ export const SourceManager: React.FC<SourceManagerProps> = ({
           )}
         </>
       )}
+
+      {/* Confirmación de borrado */}
+      <Modal
+        open={!!pendingDelete}
+        onClose={() => !deleting && setPendingDelete(null)}
+        size="sm"
+        title={pendingDelete?.kind === 'package' ? '¿Eliminar carpeta?' : '¿Eliminar índice?'}
+        footer={
+          <>
+            <Button variant="secondary" size="sm" onClick={() => setPendingDelete(null)} disabled={deleting}>
+              Cancelar
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={confirmDelete}
+              loading={deleting}
+              iconLeft={!deleting ? <Trash2 size={13} /> : undefined}
+              autoFocus
+            >
+              Eliminar
+            </Button>
+          </>
+        }
+      >
+        {pendingDelete && (
+          <p className="del-confirm">
+            Se eliminará <strong>{pendingDelete.name}</strong>
+            {pendingDelete.kind === 'package' && pendingDelete.sources ? ` con sus ${pendingDelete.sources} fuentes` : ''} (
+            {pendingDelete.count.toLocaleString('es-ES')} elementos). Esta acción no se puede deshacer.
+          </p>
+        )}
+      </Modal>
 
       {editingSource && (
         <MappingModal

@@ -1,6 +1,6 @@
 // src/components/__tests__/DocsModal.test.tsx — Pruebas unitarias de la vista de documentación (DocsView / DocsModal)
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { DocsView } from '../DocsView';
 import { DocsModal } from '../DocsModal';
 
@@ -16,18 +16,19 @@ describe('DocsView (Pestaña de Documentación)', () => {
 
   it('renderiza la cabecera, sidebar y sección inicial de la pestaña', () => {
     render(<DocsView onClose={vi.fn()} />);
+    const nav = within(screen.getByRole('navigation', { name: 'Índice de documentación' }));
 
     expect(screen.getByText('Documentación Técnica')).toBeDefined();
     expect(screen.getAllByText(/IndexLy Platform v2.0/i).length).toBeGreaterThan(0);
-    expect(screen.getByText('Arquitectura & Visión')).toBeDefined();
-    expect(screen.getByText('Modelo de Confianza')).toBeDefined();
-    expect(screen.getByText('Ciclo de Vida & Plugin Base')).toBeDefined();
-    expect(screen.getByText('Grafo de APIs (app.*)')).toBeDefined();
-    expect(screen.getByText('Acceso Nativo (app.native)')).toBeDefined();
-    expect(screen.getByText('Componentes de UI')).toBeDefined();
-    expect(screen.getByText('Testing Kit Oficial')).toBeDefined();
-    expect(screen.getByText('Plugins de Referencia')).toBeDefined();
-    expect(screen.getByText('Modo Dev, Safe Mode & Atajos')).toBeDefined();
+    expect(nav.getByText('Arquitectura & Visión')).toBeDefined();
+    expect(nav.getByText('Modelo de Confianza')).toBeDefined();
+    expect(nav.getByText('Ciclo de Vida & Plugin Base')).toBeDefined();
+    expect(nav.getByText('Grafo de APIs (app.*)')).toBeDefined();
+    expect(nav.getByText('Acceso Nativo (app.native)')).toBeDefined();
+    expect(nav.getByText('Componentes de UI')).toBeDefined();
+    expect(nav.getByText('Testing Kit Oficial')).toBeDefined();
+    expect(nav.getByText('Plugins de Referencia')).toBeDefined();
+    expect(nav.getByText('Modo Dev, Safe Mode & Atajos')).toBeDefined();
   });
 
   it('permite cambiar de sección al hacer click en un elemento del sidebar', () => {
@@ -36,8 +37,9 @@ describe('DocsView (Pestaña de Documentación)', () => {
     // Por defecto está en 'overview'
     expect(screen.getByText('Arquitectura del Sistema')).toBeDefined();
 
-    // Hacemos click en "Modelo de Confianza"
-    const trustBtn = screen.getByText('Modelo de Confianza');
+    // Hacemos click en "Modelo de Confianza" (en el índice lateral)
+    const nav = within(screen.getByRole('navigation', { name: 'Índice de documentación' }));
+    const trustBtn = nav.getByText('Modelo de Confianza');
     fireEvent.click(trustBtn);
 
     expect(screen.getByText('Obsidian Trust Model')).toBeDefined();
@@ -49,24 +51,25 @@ describe('DocsView (Pestaña de Documentación)', () => {
 
     const searchInput = screen.getByPlaceholderText('Filtrar temas, APIs o código...');
     fireEvent.change(searchInput, { target: { value: 'sqlite' } });
+    const nav = within(screen.getByRole('navigation', { name: 'Índice de documentación' }));
 
     // Secciones que contienen sqlite o etiquetas afines deben permanecer
-    expect(screen.getByText('Arquitectura & Visión')).toBeDefined();
-    expect(screen.getByText('Acceso Nativo (app.native)')).toBeDefined();
+    expect(nav.getByText('Arquitectura & Visión')).toBeDefined();
+    expect(nav.getByText('Acceso Nativo (app.native)')).toBeDefined();
 
     // Filtro sin coincidencias
     fireEvent.change(searchInput, { target: { value: 'termino-inexistente-xyz' } });
     expect(screen.getByText(/No se encontraron secciones/i)).toBeDefined();
   });
 
-  it('invoca onClose al presionar el botón de volver al buscador', () => {
-    const handleClose = vi.fn();
-    render(<DocsView onClose={handleClose} />);
+  // "Volver al buscador" vive ahora en la barra superior de la app; la vista
+  // ofrece en su lugar navegación anterior / siguiente entre secciones.
+  it('navega a la siguiente sección con el botón "Siguiente"', () => {
+    render(<DocsView onClose={vi.fn()} />);
 
-    const backBtn = screen.getByTitle('Volver a la vista del buscador');
-    fireEvent.click(backBtn);
+    fireEvent.click(screen.getByText('Siguiente'));
 
-    expect(handleClose).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Obsidian Trust Model')).toBeDefined();
   });
 
   it('copia código al portapapeles al pulsar el botón Copiar', () => {

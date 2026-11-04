@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title id="docTitle">Indexly — Find anything in your catalogs in seconds</title>
+  <meta name="description" id="docDesc" content="Universal local catalog search engine for games, media libraries, books, dumps, and JSON/CSV collections. Sub-millisecond search with SQLite FTS5 and Rust. 100% offline.">
+  <meta name="theme-color" content="#070a12">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <a class="skip-link" href="#main-content" data-i18n="skip">Skip to content</a>
+
+  <!-- ============ Header ============ -->
+  <header class="site-header" id="siteHeader">
+    <div class="container header-inner">
+      <a href="#" class="brand" aria-label="Indexly">
+        <img src="logo.svg" alt="" class="brand-logo" width="26" height="26">
+        <span class="brand-name">Index<span>Ly</span></span>
+      </a>
+
+      <nav class="site-nav" aria-label="Main navigation">
+        <a href="#capacidades" data-i18n="nav_features">Features</a>
+        <a href="#spotlight" data-i18n="nav_spotlight">Spotlight</a>
+        <a href="#arquitectura" data-i18n="nav_arch">Architecture</a>
+        <a href="#plugins" data-i18n="nav_plugins">Plugins</a>
+        <a href="#faq" data-i18n="nav_faq">FAQ</a>
+      </nav>
+
+      <div class="header-actions">
+        <a href="https://github.com/indexly/indexly" class="icon-link" target="_blank" rel="noopener noreferrer" aria-label="GitHub">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.65.5.5 5.65.5 12a11.5 11.5 0 0 0 7.86 10.92c.58.1.79-.25.79-.56v-2.02c-3.2.7-3.87-1.36-3.87-1.36-.52-1.33-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.68 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.78 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.41-2.69 5.38-5.26 5.67.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5Z"/></svg>
+        </a>
+        <a href="#descarga" class="btn btn-primary btn-sm" data-i18n="nav_download">Download</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="main-content">
+
+    <!-- ============ Hero ============ -->
+    <section class="hero">
+      <div class="hero-glow" aria-hidden="true"></div>
+      <div class="container hero-inner">
+        <a href="#plugins" class="hero-badge reveal">
+          <span class="hero-badge-dot" aria-hidden="true"></span>
+          <span data-i18n="hero_badge">v1.2 · New full-width workspace & plugin Hub</span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </a>
+
+        <h1 class="hero-title reveal" data-i18n-html="hero_title">Find anything in your catalogs <em>in seconds.</em></h1>
+
+        <p class="hero-lede reveal" data-i18n="hero_lede">
+          Indexly unifies your scattered collections, media libraries, game vaults, and JSON/CSV dumps into a blazing-fast local search engine. Powered by Rust and SQLite FTS5. Zero telemetry. 100% offline.
+        </p>
+
+        <div class="hero-ctas reveal">
+          <a href="#descarga" class="btn btn-primary btn-lg" id="heroDownload">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>
+            <span id="heroDownloadText" data-i18n="cta_download">Download for free</span>
+          </a>
+          <a href="https://github.com/indexly/indexly" class="btn btn-ghost btn-lg" target="_blank" rel="noopener noreferrer">
+            <span data-i18n="cta_github">View on GitHub</span>
+          </a>
+        </div>
+
+        <!-- Comando de instalación -->
+        <div class="install reveal">
+          <div class="install-tabs" role="tablist" aria-label="Package manager">
+            <button type="button" class="install-tab active" role="tab" data-cmd="winget">winget</button>
+            <button type="button" class="install-tab" role="tab" data-cmd="brew">brew</button>
+            <button type="button" class="install-tab" role="tab" data-cmd="curl">curl</button>
+          </div>
+          <div class="install-line">
+            <span class="install-prompt" aria-hidden="true">$</span>
+            <code id="installCmd">winget install Indexly.Desktop</code>
+            <button type="button" class="install-copy" id="copyInstallBtn" aria-label="Copy install command">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+              <span id="copyBtnText" data-i18n="copy_btn">copy</span>
+            </button>
+          </div>
+        </div>
+        <p class="hero-note reveal" data-i18n="quick_note">Available for Windows 10/11, macOS Apple Silicon/Intel, and Linux x64.</p>
+
+        <!-- Réplica de la app (HTML/CSS) -->
+        <div class="app-frame reveal" aria-hidden="true">
+          <div class="app-titlebar">
+            <span class="tb-dot"></span><span class="tb-dot"></span><span class="tb-dot"></span>
+            <span class="tb-title">IndexLy Desktop</span>
+          </div>
+          <div class="app-body">
+            <aside class="app-side">
+              <div class="side-brand"><img src="logo.svg" alt="" width="18" height="18"><b>Index<span>Ly</span></b></div>
+              <div class="side-item is-active"><i class="ico ico-search"></i>Buscador</div>
+              <div class="side-item"><i class="ico ico-globe"></i>Explorar Hub</div>
+              <div class="side-item"><i class="ico ico-book"></i>Documentación</div>
+              <div class="side-head">Plugins</div>
+              <div class="side-item"><i class="ico-letter">G</i>GameVault</div>
+              <div class="side-item"><i class="ico-letter">R</i>ReadLy</div>
+              <div class="side-head">Fuentes <em>5/7</em></div>
+              <div class="side-src"><i style="--h:212"></i><span><b>gamepack-1</b><small>5 fuentes · 23,6 mil</small></span><s class="on"></s></div>
+              <div class="side-src"><i style="--h:330"></i><span><b>stream-1</b><small>5 elementos</small></span><s class="on"></s></div>
+              <div class="side-src"><i class="emoji">🧲</i><span><b>Torrents</b><small>4 elementos</small></span><s></s></div>
+            </aside>
+            <div class="app-main">
+              <div class="app-top">
+                <div class="app-search"><i class="ico ico-search"></i><span class="typed" id="typedQuery"></span><span class="caret"></span></div>
+                <div class="app-cmd">⌘ Comandos <kbd>Ctrl</kbd><kbd>P</kbd></div>
+              </div>
+              <div class="app-content">
+                <div class="app-controls">
+                  <div class="seg"><span class="on">Todos</span><span>Con enlace</span><span>Sin enlace</span></div>
+                  <div class="seg seg-icons"><span class="on">☰</span><span>▦</span></div>
+                </div>
+                <div class="app-stats"><b id="mockCount">1.204</b>&nbsp;resultados · <code id="mockMs">0.42 ms · Rust FTS5</code></div>
+                <div class="app-list" id="mockList">
+                  <div class="row-head"><span>Título</span><span>Fuente</span><span>Tamaño</span><span></span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ Métricas ============ -->
+    <section class="metrics" aria-label="Key metrics">
+      <div class="container metrics-grid">
+        <div class="metric reveal"><span class="metric-val">&lt; 0.5 ms</span><span class="metric-label" data-i18n="m_lat_label">Search speed</span></div>
+        <div class="metric reveal"><span class="metric-val">0 bytes</span><span class="metric-label" data-i18n="m_wan_label">Outgoing WAN traffic</span></div>
+        <div class="metric reveal"><span class="metric-val">&lt; 65 MB</span><span class="metric-label" data-i18n="m_ram_label">Idle memory usage</span></div>
+        <div class="metric reveal"><span class="metric-val">SQLite</span><span class="metric-label" data-i18n="m_lic_label">Data storage</span></div>
+      </div>
+    </section>
+
+    <!-- ============ Capacidades (bento) ============ -->
+    <section id="capacidades" class="section">
+      <div class="container">
+        <header class="section-head reveal">
+          <span class="eyebrow" data-i18n="features_eyebrow">Features</span>
+          <h2 data-i18n="features_heading">What is Indexly?</h2>
+          <p data-i18n="features_intro">Indexly is a universal catalog search engine and personal indexing vault. It eliminates wasted time hunting across scattered disks, folders, and dumps by organizing everything into an instant offline index.</p>
+        </header>
+
+        <div class="bento">
+          <article class="card card-wide reveal">
+            <div class="card-head">
+              <div class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg></div>
+              <h3 data-i18n="f1_title">Universal Catalog Ingestion</h3>
+            </div>
+            <p data-i18n="f1_desc">Bring game libraries, movie lists, digital books, music collections, CSV files, and magnet link dumps into a single searchable dashboard.</p>
+            <div class="chip-row" aria-hidden="true">
+              <span>.json</span><span>.csv</span><span>.tsv</span><span>.txt</span><span>envelope v2</span><span>magnet:</span>
+            </div>
+          </article>
+
+          <article class="card reveal">
+            <div class="card-head">
+              <div class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg></div>
+              <h3 data-i18n="f2_title">Sub-millisecond Search (&lt; 0.5 ms)</h3>
+            </div>
+            <p data-i18n="f2_desc">Native Rust engine with SQLite FTS5, diacritics removal, and BM25 relevance ranking. Find any item out of hundreds of thousands instantly.</p>
+          </article>
+
+          <article class="card reveal">
+            <div class="card-head">
+              <div class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+              <h3 data-i18n="f6_title">100% Local-First &amp; Zero WAN Telemetry</h3>
+            </div>
+            <p data-i18n="f6_desc">Your catalogs live in an open SQLite database on your machine. 0 bytes are transmitted to remote servers. No subscriptions, no ads, no cloud lock-in.</p>
+          </article>
+
+          <article class="card reveal">
+            <div class="card-head">
+              <div class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M4 12h10"/><path d="M4 17h7"/><path d="m15 15 2 2 4-4"/></svg></div>
+              <h3 data-i18n="f4_title">Auto-Mapping &amp; Flexible Envelopes</h3>
+            </div>
+            <p data-i18n="f4_desc">Drop any JSON, CSV, or v2 envelope. Indexly automatically identifies title, download URI, and size fields with zero configuration needed.</p>
+          </article>
+
+          <article class="card reveal">
+            <div class="card-head">
+              <div class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19.439 7.85c-.049.322.059.648.289.878l1.568 1.568c.47.47.706 1.087.706 1.704s-.235 1.233-.706 1.704l-1.611 1.611a.98.98 0 0 1-.837.276c-.47-.07-.802-.48-.968-.925a2.501 2.501 0 1 0-3.214 3.214c.446.166.855.497.925.968a.979.979 0 0 1-.276.837l-1.61 1.61a2.404 2.404 0 0 1-1.705.707 2.402 2.402 0 0 1-1.704-.706l-1.568-1.568a1.026 1.026 0 0 0-.877-.29c-.493.074-.84.504-1.02.968a2.5 2.5 0 1 1-3.237-3.237c.464-.18.894-.527.967-1.02a1.026 1.026 0 0 0-.289-.877l-1.568-1.568A2.402 2.402 0 0 1 1.998 12c0-.617.236-1.234.706-1.704L4.23 8.77c.24-.24.581-.353.917-.303.515.077.877.528 1.073 1.01a2.5 2.5 0 1 0 3.259-3.259c-.482-.196-.933-.558-1.01-1.073-.05-.336.062-.676.303-.917l1.525-1.525A2.402 2.402 0 0 1 12 1.998c.617 0 1.234.236 1.704.706l1.568 1.568c.23.23.556.338.877.29.493-.074.84-.504 1.02-.968a2.5 2.5 0 1 1 3.237 3.237c-.464.18-.894.527-.967 1.02Z"/></svg></div>
+              <h3 data-i18n="f5_title">Indexly Hub &amp; Obsidian-Style Plugins</h3>
+            </div>
+            <p data-i18n="f5_desc">Connect pre-built catalog packages from Indexly Hub or install community plugins (GameVault, ReadLy, grid views) via @indexly/plugin-api.</p>
+            <div class="mini-hub" aria-hidden="true">
+              <div class="mini-pkg"><i style="--h:212">G</i><span><b>gamepack 1</b><small>@daidarzzz · v1.0.1</small></span><em>Importar</em></div>
+              <div class="mini-pkg"><i style="--h:150">R</i><span><b>ReadLy</b><small>Plugin · v1.7.1</small></span><em>Instalar</em></div>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ Spotlight ============ -->
+    <section id="spotlight" class="section section-spotlight">
+      <div class="container spotlight-grid">
+        <div class="spotlight-copy reveal">
+          <span class="eyebrow" data-i18n="spot_eyebrow">Spotlight</span>
+          <h2 data-i18n="f3_title">Global Spotlight Shortcut (Alt+Space / Ctrl+K)</h2>
+          <p data-i18n="f3_desc">Summon the floating search bar over any game, browser, or desktop window to copy links or launch items without changing context.</p>
+          <div class="keys" aria-label="Alt + Space">
+            <kbd class="keycap">Alt</kbd><span>+</span><kbd class="keycap keycap-wide">Space</kbd>
+          </div>
+        </div>
+
+        <div class="spotlight-demo reveal" aria-hidden="true">
+          <div class="spot-backdrop"></div>
+          <div class="spot-box">
+            <div class="spot-input"><i class="ico ico-search"></i><span>elden ring</span><span class="caret"></span></div>
+            <div class="spot-list">
+              <div class="spot-row is-sel"><i class="ico-tile ico-link"></i><span><b><mark>Elden Ring</mark>: Shadow of the Erdtree</b><small>Steam Rip · v1.0</small></span><em>gamepack-1</em></div>
+              <div class="spot-row"><i class="ico-tile ico-magnet"></i><span><b><mark>Elden Ring</mark> Deluxe Edition</b><small>FitGirl Repack · Multi-ES</small></span><em>Torrents</em></div>
+              <div class="spot-row"><i class="ico-tile ico-file"></i><span><b><mark>Elden Ring</mark> OST</b><small>FLAC · 24-bit</small></span><em>stream-1</em></div>
+            </div>
+            <div class="spot-foot"><span><kbd>↵</kbd> Abrir</span><span><kbd>Ctrl</kbd><kbd>C</kbd> Copiar enlace</span><span class="spot-ms">3 resultados · 0.3 ms</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ Arquitectura ============ -->
+    <section id="arquitectura" class="section">
+      <div class="container arch-grid">
+        <header class="section-head section-head-left reveal">
+          <span class="eyebrow" data-i18n="arch_eyebrow">Architecture</span>
+          <h2 data-i18n="arch_heading">Local-First Architecture</h2>
+          <p data-i18n="arch_intro">Cloud databases enforce 400ms network round-trips and recurring fees to access your own collection records. Indexly indexes millions of items locally with Rust for instant access.</p>
+          <ul class="arch-points">
+            <li><span class="arch-tag">Rust</span><span data-i18n="arch_p1">Native core with Tauri v2</span></li>
+            <li><span class="arch-tag">FTS5</span><span data-i18n="arch_p2">BM25 ranking & diacritics removal</span></li>
+            <li><span class="arch-tag">.db</span><span data-i18n="arch_p3">One open SQLite file you own</span></li>
+          </ul>
+        </header>
+
+        <div class="code-card reveal">
+          <div class="code-card-head">
+            <span class="code-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span class="code-file">sqlite_catalog_vault.sql</span>
+            <span class="code-lang">RUST + FTS5</span>
+          </div>
+<pre class="code"><code><span class="c">-- Unified Catalog Storage (Indexly SQLite FTS5)</span>
+<span class="k">CREATE VIRTUAL TABLE</span> catalog_vault <span class="k">USING</span> <span class="f">fts5</span>(
+    id <span class="m">UNINDEXED</span>,
+    source_name <span class="m">UNINDEXED</span>,
+    title,
+    subtitle,
+    file_size <span class="m">UNINDEXED</span>,
+    link <span class="m">UNINDEXED</span>,
+    tokenize = <span class="s">'unicode61 remove_diacritics 2'</span>
+);
+
+<span class="c">-- Instant lookup across 500,000+ items (&lt; 0.5ms)</span>
+<span class="k">SELECT</span> title, subtitle, file_size, link, <span class="f">bm25</span>(catalog_vault) <span class="k">AS</span> rank
+<span class="k">FROM</span> catalog_vault
+<span class="k">WHERE</span> catalog_vault <span class="k">MATCH</span> <span class="s">'cyberpunk OR matrix'</span>
+<span class="k">ORDER BY</span> rank
+<span class="k">LIMIT</span> <span class="n">50</span>;</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ Plugins ============ -->
+    <section id="plugins" class="section">
+      <div class="container">
+        <header class="section-head reveal">
+          <span class="eyebrow" data-i18n="plugins_eyebrow">Ecosystem</span>
+          <h2 data-i18n="plugins_heading">Plugins &amp; Ecosystem</h2>
+          <p data-i18n="plugins_intro">Customize how your catalogs are browsed and enriched. Indexly provides a modular plugin API inspired by Obsidian and a built-in Hub for catalog packages.</p>
+        </header>
+
+        <div class="plugin-grid">
+          <article class="plugin reveal">
+            <div class="plugin-top"><i class="plugin-avatar" style="--h:212">G</i><span class="plugin-ver">v2.1.0</span></div>
+            <h3>GameVault</h3>
+            <p data-i18n="p_gv_desc">Rich grid cover view and status tags for PC games, emulation ROMs, and installed titles with local launcher integration.</p>
+            <span class="plugin-perm">ui: cover-grid</span>
+          </article>
+          <article class="plugin reveal">
+            <div class="plugin-top"><i class="plugin-avatar" style="--h:150">R</i><span class="plugin-ver">v1.4.2</span></div>
+            <h3>ReadLy</h3>
+            <p data-i18n="p_rl_desc">Dedicated workspace section for cataloged PDF papers, EPUB ebooks, and technical markdown specifications with full text preview.</p>
+            <span class="plugin-perm">ui: document-reader</span>
+          </article>
+          <article class="plugin reveal">
+            <div class="plugin-top"><i class="plugin-avatar" style="--h:270">U</i><span class="plugin-ver">core-native</span></div>
+            <h3>Universal AutoMapper</h3>
+            <p data-i18n="p_am_desc">Intelligent column recognizer that binds non-standard CSV headers and nested JSON fields to the UnifiedItem schema instantly.</p>
+            <span class="plugin-perm">engine: heuristic</span>
+          </article>
+          <article class="plugin reveal">
+            <div class="plugin-top"><i class="plugin-avatar" style="--h:20">T</i><span class="plugin-ver">security-layer</span></div>
+            <h3>Rust TrackerBlocker</h3>
+            <p data-i18n="p_tb_desc">Built-in privacy proxy in Rust that blocks telemetry beacons and trackers when fetching album covers or metadata thumbnails.</p>
+            <span class="plugin-perm">network: isolated</span>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ FAQ ============ -->
+    <section id="faq" class="section">
+      <div class="container faq-grid">
+        <header class="section-head section-head-left reveal">
+          <span class="eyebrow">FAQ</span>
+          <h2 data-i18n="faq_heading">Frequently Asked Questions</h2>
+        </header>
+
+        <div class="faq-list">
+          <details class="faq reveal" open>
+            <summary data-i18n="faq_q1">What kinds of catalogs can I search with Indexly?</summary>
+            <p data-i18n="faq_a1">Anything you can catalog: game collections, movies and series, digital books, music discographies, dataset dumps, software releases, or torrent and magnet lists. You can import standard JSON arrays, CSV spreadsheets, or Indexly v2 envelope packages.</p>
+          </details>
+          <details class="faq reveal">
+            <summary data-i18n="faq_q2">How fast is the search across large collections?</summary>
+            <p data-i18n="faq_a2">Indexly uses SQLite Full-Text Search (FTS5) compiled in native C++ and managed through Rust. Even with 500,000+ indexed items, queries return in under 0.5 milliseconds directly from local memory and SSD cache.</p>
+          </details>
+          <details class="faq reveal">
+            <summary data-i18n="faq_q3">Does Indexly upload my library data to the cloud?</summary>
+            <p data-i18n="faq_a3">Never. Indexly operates entirely offline on your computer. All indexes, configurations, and source mappings are saved in an open SQLite database inside your local app data folder. Zero telemetry packets leave your machine.</p>
+          </details>
+          <details class="faq reveal">
+            <summary data-i18n="faq_q4">What is Indexly Hub?</summary>
+            <p data-i18n="faq_a4">Indexly Hub is a decentralized repository explorer integrated into the desktop app that allows you to discover, download, and sync pre-mapped catalog packages curated by the community with one click.</p>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ Descargas ============ -->
+    <section id="descarga" class="section section-download">
+      <div class="container">
+        <div class="download-panel reveal">
+          <div class="download-glow" aria-hidden="true"></div>
+          <header class="section-head">
+            <img src="logo.svg" alt="" width="52" height="52" class="download-logo">
+            <h2 data-i18n="dl_heading">Downloads</h2>
+            <p data-i18n="dl_intro">Official binary releases for Indexly Desktop v1.2.0.</p>
+          </header>
+
+          <div class="download-grid">
+            <a href="#" class="dl-card" data-os="windows" download>
+              <span class="dl-os">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5.1 10.4 4v7.2H3V5.1Zm0 13.8 7.4 1.1v-7.1H3v6Zm8.3 1.2L21 21.5V12.9h-9.7v7.2Zm0-16.2v7.3H21V2.5l-9.7 1.4Z"/></svg>
+                <span><b>Windows</b><small>10 / 11 · x64</small></span>
+              </span>
+              <span class="dl-file">Indexly-Setup-1.2.0-x64.exe</span>
+              <span class="dl-sha">SHA256 8f3c74…e21d90</span>
+              <span class="dl-rec" data-i18n="dl_recommended">Recommended for you</span>
+            </a>
+            <a href="#" class="dl-card" data-os="mac" download>
+              <span class="dl-os">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.37 12.6c.02 2.3 2.02 3.06 2.04 3.07-.02.05-.32 1.09-1.06 2.17-.64.93-1.3 1.86-2.35 1.88-1.03.02-1.36-.61-2.53-.61-1.18 0-1.54.59-2.52.63-1.01.04-1.78-1.01-2.42-1.94-1.32-1.9-2.32-5.38-.97-7.73.67-1.17 1.87-1.91 3.17-1.93.99-.02 1.93.67 2.53.67.61 0 1.75-.83 2.95-.71.5.02 1.91.2 2.81 1.53-.07.05-1.68.98-1.66 2.93M14.43 6.9c.54-.65.9-1.56.8-2.47-.78.03-1.72.52-2.27 1.17-.5.58-.94 1.5-.82 2.39.87.07 1.75-.44 2.29-1.09"/></svg>
+                <span><b>macOS</b><small>Apple Silicon &amp; Intel</small></span>
+              </span>
+              <span class="dl-file">Indexly-1.2.0-universal.dmg</span>
+              <span class="dl-sha">SHA256 4b1a91…c90fa4</span>
+              <span class="dl-rec" data-i18n="dl_recommended">Recommended for you</span>
+            </a>
+            <a href="#" class="dl-card" data-os="linux" download>
+              <span class="dl-os">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 17 6-6-6-6"/><path d="M12 19h8"/></svg>
+                <span><b>Linux</b><small>x86_64 · .AppImage / .deb</small></span>
+              </span>
+              <span class="dl-file">Indexly-1.2.0-x86_64.AppImage</span>
+              <span class="dl-sha">SHA256 7d2e05…33aae1</span>
+              <span class="dl-rec" data-i18n="dl_recommended">Recommended for you</span>
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ============ Footer ============ -->
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <img src="logo.svg" alt="" width="20" height="20">
+        <span class="brand-name">Index<span>Ly</span></span>
+        <span class="footer-license">MIT License · 2026</span>
+      </div>
+      <nav class="footer-links" aria-label="Footer links">
+        <a href="https://github.com/indexly/indexly" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <a href="#descarga" data-i18n="foot_download">Download</a>
+        <a href="#faq" data-i18n="foot_faq">FAQ</a>
+        <a href="#" data-i18n="foot_license">License</a>
+      </nav>
+    </div>
+  </footer>
+
+  <div class="toast" id="toastNotice" role="status" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1076,6 +1076,7 @@ mod tests {
             title_key: Some("name".to_string()),
             link_key: Some("url".to_string()),
             subtitle_key: None,
+            ..Default::default()
         };
 
         let new_items = vec![UnifiedItem {

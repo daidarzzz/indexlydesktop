@@ -78,7 +78,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
         style={{ marginTop: '36px' }}
         icon={<IndexlyLogo size={30} style={{ borderRadius: '8px' }} />}
         title="No hay fuentes activas"
-        description="Activa o añade al menos una fuente en el gestor superior para comenzar a buscar en tus índices."
+        description="Activa o añade al menos una fuente en la barra lateral para empezar a buscar en tus índices."
       />
     );
   }
@@ -144,6 +144,14 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
       </div>
 
       <div id="results" className={`results-grid ${viewMode === 'grid' ? 'view-grid' : 'view-list'}`}>
+        {viewMode === 'list' && (
+          <div className="results-head" aria-hidden="true">
+            <span className="results-head__title">Título</span>
+            <span className="results-head__source">Fuente</span>
+            <span className="results-head__size">Tamaño</span>
+            <span className="results-head__actions" />
+          </div>
+        )}
         {items.map((item) => {
           const isMagnet = item.link?.startsWith('magnet:');
           const hasLink = Boolean(item.link && item.link.trim());
@@ -246,6 +254,13 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
                   {item.file_size && <span className="result-row__size">{item.file_size}</span>}
                 </div>
               </div>
+
+              {/* Columnas: sólo visibles cuando la zona principal es ancha */}
+              <span className="result-row__col result-row__col--source" title={item.source_name}>
+                <span className="result-row__dot" style={{ background: `hsl(${getHue(item.source_name || '')}, 70%, 58%)` }} />
+                <span className="result-row__col-text">{item.source_name}</span>
+              </span>
+              <span className="result-row__col result-row__col--size">{item.file_size || '—'}</span>
 
               <div className="result-actions">
                 {/* Acciones de plugins agrupadas en el menú "⋯" */}

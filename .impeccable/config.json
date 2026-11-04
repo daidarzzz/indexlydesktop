@@ -1,0 +1,14 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "inter",
+        "createdAt": "2026-11-03T22:34:21.801Z",
+        "reason": "User asked to polish UI without changing the app's style; Inter is the established --font-sans in src/index.css"
+      }
+    ]
+  }
+}

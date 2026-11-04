@@ -105,6 +105,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::import_file,
+            commands::import_torrent,
+            commands::preview_import,
+            commands::export_sources,
             commands::get_sources,
             commands::toggle_source,
             commands::delete_source,

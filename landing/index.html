@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#090d12" />
+    <meta
+      name="description"
+      content="IndexLy reúne tus colecciones en un buscador local, rápido y extensible. Importa tus listados y encuentra lo que buscas en segundos."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="IndexLy — Encuentra lo que guardas" />
+    <meta
+      property="og:description"
+      content="Un buscador local para todas tus colecciones. Tus datos, tus fuentes, tus reglas."
+    />
+    <title>IndexLy — Encuentra lo que guardas</title>
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="./script.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#contenido">Saltar al contenido</a>
+
+    <header class="site-header">
+      <nav class="nav shell" aria-label="Navegación principal">
+        <a class="brand" href="#inicio" aria-label="IndexLy, inicio">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 36 36" fill="none">
+              <path d="M6.5 10.25 18 4l11.5 6.25L18 16.5 6.5 10.25Z" />
+              <path d="M6.5 17.75 18 24l11.5-6.25M6.5 25.25 18 31.5l11.5-6.25" />
+              <circle cx="28.75" cy="26.75" r="4.25" />
+            </svg>
+          </span>
+          <span class="brand-word">Index<span>Ly</span></span>
+        </a>
+
+        <button class="menu-toggle" type="button" aria-label="Abrir menú" aria-expanded="false" aria-controls="nav-links">
+          <span></span><span></span>
+        </button>
+
+        <div class="nav-links" id="nav-links">
+          <a href="#ventajas">Ventajas</a>
+          <a href="#como-funciona">Cómo funciona</a>
+          <a href="#hecho-para-ti">Para ti</a>
+          <a class="nav-cta" href="https://github.com/daidarzzz/indexlydesktop" target="_blank" rel="noreferrer">
+            Ver en GitHub
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3h8v8M13 3 6 10" /></svg>
+          </a>
+        </div>
+      </nav>
+    </header>
+
+    <main id="contenido">
+      <section class="hero shell" id="inicio">
+        <div class="hero-copy">
+          <div class="eyebrow"><span class="eyebrow-dot"></span> Tus colecciones, por fin conectadas</div>
+          <h1>Todo lo que guardas.<br />Encuéntralo <span class="text-accent">en segundos.</span></h1>
+          <p class="hero-lede">
+            Una app de escritorio para buscar en todas tus colecciones. Importa tus listados, reúne tus fuentes y encuentra justo eso que sabías que tenías.
+          </p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="https://github.com/daidarzzz/indexlydesktop" target="_blank" rel="noreferrer">
+              <svg class="github-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .9a11.1 11.1 0 0 0-3.51 21.63c.56.1.76-.24.76-.54v-2.1c-3.1.67-3.76-1.32-3.76-1.32-.5-1.29-1.24-1.63-1.24-1.63-1.02-.7.08-.69.08-.69 1.12.08 1.71 1.15 1.71 1.15 1 .1.75 2.64 3.9 1.88.1-.73.39-1.23.7-1.52-2.48-.28-5.09-1.24-5.09-5.53 0-1.22.44-2.21 1.15-2.99-.12-.28-.5-1.42.11-2.95 0 0 .94-.3 3.05 1.14a10.6 10.6 0 0 1 5.55 0c2.11-1.44 3.05-1.14 3.05-1.14.61 1.53.23 2.67.11 2.95.72.78 1.15 1.77 1.15 2.99 0 4.3-2.62 5.25-5.11 5.52.4.34.75 1.01.75 2.04v3.02c0 .3.2.65.77.54A11.1 11.1 0 0 0 12 .9Z" /></svg>
+              Explorar IndexLy
+              <svg class="arrow-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M8.5 3.5 13 8l-4.5 4.5" /></svg>
+            </a>
+            <a class="button button-quiet" href="#como-funciona">Descubre cómo funciona <span aria-hidden="true">↓</span></a>
+          </div>
+          <div class="hero-notes">
+            <span><span class="note-check">✓</span> Búsqueda local</span>
+            <span><span class="note-check">✓</span> Datos bajo tu control</span>
+            <span><span class="note-check">✓</span> Ampliable con plugins</span>
+          </div>
+        </div>
+
+        <div class="hero-visual" aria-label="Vista de ejemplo de la aplicación IndexLy">
+          <div class="visual-orbit orbit-one"></div>
+          <div class="visual-orbit orbit-two"></div>
+          <div class="app-window">
+            <div class="window-topbar">
+              <div class="window-lights"><i></i><i></i><i></i></div>
+              <div class="window-title"><span class="mini-mark">i</span> IndexLy <span class="window-title-muted">/ Buscador</span></div>
+              <div class="window-top-actions"><span></span><span></span><span></span></div>
+            </div>
+            <div class="app-body">
+              <aside class="app-sidebar">
+                <div class="sidebar-heading">TU ESPACIO <span>⌄</span></div>
+                <div class="sidebar-item active"><span class="side-icon side-all">✳</span> Todas las fuentes <b>3</b></div>
+                <div class="sidebar-heading sidebar-heading-spaced">FUENTES <button type="button" aria-label="Añadir fuente">+</button></div>
+                <div class="sidebar-item"><span class="source-dot dot-blue"></span> Libros <small>248</small></div>
+                <div class="sidebar-item"><span class="source-dot dot-lilac"></span> Películas <small>126</small></div>
+                <div class="sidebar-item"><span class="source-dot dot-peach"></span> Para leer <small>84</small></div>
+                <div class="sidebar-bottom"><span class="sidebar-avatar">D</span><span>Tu biblioteca<small>Almacenada en local</small></span><span class="more-dots">···</span></div>
+              </aside>
+
+              <div class="app-main">
+                <div class="app-toolbar"><span>Biblioteca</span><div class="toolbar-right"><span class="status-pill"><i></i> Todo al día</span><span class="toolbar-avatar">D</span></div></div>
+                <div class="search-context">BUSCADOR <span>·</span> TODAS LAS FUENTES</div>
+                <div class="mock-search">
+                  <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.7" cy="8.7" r="5.7" /><path d="m13 13 4 4" /></svg>
+                  <span>dune</span>
+                  <kbd>⌘ K</kbd>
+                </div>
+                <div class="results-heading"><strong>Resultados</strong><span>3 encontrados <b>·</b> 2 fuentes</span></div>
+                <div class="result-card result-card-featured">
+                  <div class="result-art art-desert"><span>ARRAKIS<br /><b>06 · 10191</b></span><i></i></div>
+                  <div class="result-info"><div class="result-label"><span class="result-source-dot dot-blue"></span> LIBROS <span class="result-match">MEJOR COINCIDENCIA</span></div><h3>Dune</h3><p>Frank Herbert <span>·</span> 1965</p><div class="result-path">Colección de ciencia ficción <span>›</span> Favoritos</div></div>
+                  <span class="result-star">✦</span>
+                </div>
+                <div class="result-card">
+                  <div class="result-art art-night"><span>DUNE<br /><b>THE DESERT PLANET</b></span><i></i></div>
+                  <div class="result-info"><div class="result-label"><span class="result-source-dot dot-lilac"></span> PELÍCULAS</div><h3>Dune: Part Two</h3><p>Denis Villeneuve <span>·</span> 2024</p><div class="result-path">Cine pendiente <span>›</span> Favoritos</div></div>
+                  <span class="result-open">↗</span>
+                </div>
+                <div class="results-foot"><span>⌘ K <b>para buscar desde cualquier lugar</b></span><span>Rust · SQLite FTS5</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="float-chip chip-fast"><span class="chip-spark">✳</span><span><b>Búsqueda instantánea</b><small>Tu biblioteca completa, al momento</small></span></div>
+          <div class="float-chip chip-local"><span class="chip-lock">⌑</span><span><b>Se queda contigo</b><small>Índice local, datos bajo tu control</small></span></div>
+          <div class="visual-caption"><span class="caption-line"></span> ASÍ DE CLARO. ASÍ DE RÁPIDO.</div>
+        </div>
+
+        <div class="hero-bottom">
+          <span>HECHO PARA LO QUE TE GUSTA</span>
+          <div class="interest-list"><span>Libros</span><i></i><span>Películas</span><i></i><span>Juegos</span><i></i><span>Cualquier colección</span></div>
+          <div class="hero-bottom-note"><span class="tiny-star">✳</span> Tus datos. Tus reglas.</div>
+        </div>
+      </section>
+
+      <section class="intro-section section shell" id="ventajas">
+        <div class="section-kicker"><span>01</span> MENOS BUSCAR, MÁS DISFRUTAR</div>
+        <div class="intro-grid">
+          <h2>Tu colección crece.<br /><span>Encontrar algo no</span><br />debería costar más.</h2>
+          <div class="intro-copy"><p>Un archivo aquí, una lista allá. IndexLy reúne tus fuentes en un solo buscador, para que no tengas que acordarte de dónde guardaste cada cosa.</p><a class="text-link" href="#como-funciona">Conoce el flujo <span>↗</span></a></div>
+        </div>
+        <div class="feature-grid">
+          <article class="feature-card feature-local">
+            <div class="feature-icon icon-lock"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 1 1 8 0v3M12 14v3"/></svg></div>
+            <span class="card-index">01 — TRANQUILIDAD</span>
+            <h3>Tu biblioteca es tuya.</h3>
+            <p>IndexLy busca en un índice guardado localmente. Tus archivos y tus fuentes siguen bajo tu control.</p>
+            <div class="feature-detail"><span class="detail-dot"></span> LOCAL POR DISEÑO</div>
+          </article>
+          <article class="feature-card feature-speed">
+            <div class="feature-icon icon-bolt"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m13.3 2-9 12h7l-.6 8 9-12h-7l.6-8Z"/></svg></div>
+            <span class="card-index">02 — RESPUESTA</span>
+            <h3>Escribe. Aparece.</h3>
+            <p>Búsqueda de texto completo con Rust y SQLite FTS5. Encuentra coincidencias sin pasearte por cada lista.</p>
+            <div class="feature-detail"><span class="detail-code">Rust + FTS5</span> BÚSQUEDA DE TEXTO COMPLETO</div>
+          </article>
+          <article class="feature-card feature-open" id="hecho-para-ti">
+            <div class="feature-icon icon-plug"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7V3m6 4V3M7 7h10v4a5 5 0 0 1-5 5v5m-5-9H5m14 0h-2"/><path d="M5 10v1a2 2 0 0 0 2 2m12-3v1a2 2 0 0 1-2 2"/></svg></div>
+            <span class="card-index">03 — A TU MANERA</span>
+            <h3>Crece contigo.</h3>
+            <p>Importa formatos que ya usas y añade plugins para llevar IndexLy más lejos, a tu ritmo.</p>
+            <div class="feature-detail"><span class="format-tag">JSON</span><span class="format-tag">CSV</span><span class="format-tag">TSV</span><span class="format-tag">TXT</span></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="flow-section section" id="como-funciona">
+        <div class="shell">
+          <div class="section-kicker"><span>02</span> EMPEZAR ES MUY FÁCIL</div>
+          <div class="flow-heading"><h2>De tus archivos<br />a <span>“aquí está”.</span></h2><p>No hace falta reorganizar tu vida digital. Empieza con los listados que ya tienes.</p></div>
+          <div class="steps-grid">
+            <article class="step-card">
+              <div class="step-top"><span class="step-number">01</span><span class="step-icon icon-import"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3m0 0L7 8m5-5 5 5"/><path d="M5 14v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5"/></svg></span></div>
+              <h3>Trae tus listados</h3><p>Importa archivos JSON, CSV, TSV o TXT como fuentes de tu biblioteca.</p>
+              <div class="file-stack"><span class="file-chip"><b>{ }</b> biblioteca.json</span><span class="file-chip"><b>▤</b> pendientes.csv</span><span class="file-plus">+</span></div>
+            </article>
+            <div class="step-connector" aria-hidden="true"><span>→</span></div>
+            <article class="step-card">
+              <div class="step-top"><span class="step-number">02</span><span class="step-icon icon-organize"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16M4 12h10M4 18.5h7"/><circle cx="18" cy="12" r="2"/><circle cx="15" cy="18.5" r="2"/><circle cx="9" cy="5.5" r="2"/></svg></span></div>
+              <h3>IndexLy lo ordena</h3><p>Cada archivo se convierte en una fuente que puedes activar y gestionar.</p>
+              <div class="source-stack"><span class="source-chip"><i class="dot-blue"></i> Biblioteca de libros <b>248</b></span><span class="source-chip"><i class="dot-lilac"></i> Lista de películas <b>126</b></span></div>
+            </article>
+            <div class="step-connector" aria-hidden="true"><span>→</span></div>
+            <article class="step-card step-final">
+              <div class="step-top"><span class="step-number">03</span><span class="step-icon icon-find"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/><path d="M8 10.5h5m-2.5-2.5v5"/></svg></span></div>
+              <h3>Encuentra lo tuyo</h3><p>Busca una palabra y explora resultados de todas tus fuentes, en un mismo sitio.</p>
+              <div class="mini-query"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.7" cy="8.7" r="5.7"/><path d="m13 13 4 4"/></svg><span>lo que buscabas</span><kbd>↵</kbd></div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="manifesto-section section shell">
+        <div class="manifesto-mark" aria-hidden="true"><svg viewBox="0 0 36 36" fill="none"><path d="M6.5 10.25 18 4l11.5 6.25L18 16.5 6.5 10.25Z"/><path d="M6.5 17.75 18 24l11.5-6.25M6.5 25.25 18 31.5l11.5-6.25"/><circle cx="28.75" cy="26.75" r="4.25"/></svg></div>
+        <div class="manifesto-content"><div class="section-kicker"><span>03</span> UNA IDEA SENCILLA</div><blockquote>“La tecnología debería ayudarte a encontrar tus cosas, <em>no pedirte más tiempo.</em>”</blockquote><div class="manifesto-signature"><span class="signature-rule"></span> INDEXLY · BUSCA A TU MANERA</div></div>
+        <div class="manifesto-decoration" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+      </section>
+
+      <section class="final-cta shell">
+        <div class="cta-glow" aria-hidden="true"></div>
+        <div class="cta-content"><div class="eyebrow"><span class="eyebrow-dot"></span> Un sitio para todo lo que encuentras</div><h2>Tu próxima búsqueda<br />empieza <span>aquí.</span></h2><p>Descubre IndexLy y dale a tus colecciones un lugar donde se encuentren.</p><a class="button button-primary" href="https://github.com/daidarzzz/indexlydesktop" target="_blank" rel="noreferrer">Conocer el proyecto <svg class="arrow-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M8.5 3.5 13 8l-4.5 4.5" /></svg></a></div>
+        <div class="cta-decoration" aria-hidden="true"><span class="cta-ring ring-a"></span><span class="cta-ring ring-b"></span><span class="cta-ring ring-c"></span><span class="cta-core">i<span>✳</span></span><span class="cta-dot cta-dot-a"></span><span class="cta-dot cta-dot-b"></span><span class="cta-dot cta-dot-c"></span></div>
+      </section>
+    </main>
+
+    <footer class="site-footer shell">
+      <a class="brand footer-brand" href="#inicio" aria-label="IndexLy, volver al inicio"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 36 36" fill="none"><path d="M6.5 10.25 18 4l11.5 6.25L18 16.5 6.5 10.25Z"/><path d="M6.5 17.75 18 24l11.5-6.25M6.5 25.25 18 31.5l11.5-6.25"/><circle cx="28.75" cy="26.75" r="4.25"/></svg></span><span class="brand-word">Index<span>Ly</span></span></a>
+      <p>Menos buscar. Más disfrutar.</p>
+      <div class="footer-links"><a href="https://github.com/daidarzzz/indexlydesktop" target="_blank" rel="noreferrer">GitHub <span>↗</span></a><span class="footer-divider"></span><span>Hecho con curiosidad <span class="footer-heart">✳</span></span></div>
+      <span class="footer-year">© <span id="year">2026</span> IndexLy</span>
+    </footer>
+  </body>
+</html>

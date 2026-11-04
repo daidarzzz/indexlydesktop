@@ -1,12 +1,13 @@
 // src-tauri/src/commands.rs — Comandos IPC expuestos a la interfaz React
 use crate::db::Database;
 use crate::models::{
-    AutoMappingResult, DynamicWindowConfig, FsEntry, MappingConfig, ProcessRunResult, SearchResult,
-    Source, SourceMappingInfo, UnifiedItem,
+    AutoMappingResult, DynamicWindowConfig, FsEntry, ImportPreview, MappingConfig, ProcessRunResult,
+    SearchResult, Source, SourceMappingInfo, UnifiedItem,
 };
 use crate::normalizer::{
-    detect_array, get_auto_mapping, get_available_keys, normalize_json_to_items,
-    parse_csv_to_items, parse_tabular_items, parse_v2_envelope,
+    build_import_preview, detect_array, detect_format, get_auto_mapping, get_available_keys,
+    normalize_json_to_items, parse_items, parse_tabular_items, parse_v2_envelope, sanitize_slug,
+    DetectedFormat,
 };
 use crate::plugins::{LoadedPlugin, PluginManager};
 use serde_json::Value;
@@ -90,6 +91,65 @@ fn find_bencode_value_end(bytes: &[u8], mut idx: usize) -> Option<usize> {
     }
 }
 
+/// Nombre sin extensión de importación (para nombrar paquetes).
+fn strip_import_ext(name: &str) -> &str {
+    let lower = name.to_lowercase();
+    for ext in [".json.gz", ".jsonl.gz", ".csv.gz", ".jsonl", ".ndjson", ".json", ".csv", ".tsv", ".txt"] {
+        if lower.ends_with(ext) {
+            return name[..name.len() - ext.len()].trim();
+        }
+    }
+    name.trim()
+}
+
+/// Crea una fuente de un elemento a partir de los bytes de un .torrent.
+fn import_torrent_bytes(state: &State<'_, AppState>, name: &str, bytes: &[u8]) -> Result<Vec<Source>, String> {
+    let game_title = name
+        .trim_end_matches(".torrent")
+        .replace(['-', '_'], " ")
+        .trim()
+        .to_string();
+
+    let source_id = Uuid::new_v4().to_string();
+    let display_name = format!("🧲 {}", game_title);
+
+    let info_hash = extract_torrent_info_hash(bytes)
+        .ok_or_else(|| "El archivo .torrent no es válido (no se encontró el diccionario 'info')".to_string())?;
+    let magnet_link = format!("magnet:?xt=urn:btih:{}&dn={}", info_hash, game_title.replace(' ', "+"));
+
+    let item = UnifiedItem {
+        id: format!("{}:0", source_id),
+        source_id: source_id.clone(),
+        source_name: display_name.clone(),
+        title: game_title.clone(),
+        subtitle: Some("Torrent".to_string()),
+        file_size: None,
+        file_size_bytes: None,
+        link: Some(magnet_link),
+        raw: None,
+    };
+
+    let mut flags = std::collections::HashMap::new();
+    flags.insert("isTorrentSource".to_string(), true);
+
+    let source = Source {
+        id: source_id,
+        name: display_name,
+        active: true,
+        count: 1,
+        mapping: None,
+        pkg: None,
+        flags: Some(flags),
+    };
+
+    state
+        .db
+        .insert_source_with_items(&source, None, &[item])
+        .map_err(|e| format!("Error guardando torrent: {}", e))?;
+
+    Ok(vec![source])
+}
+
 #[tauri::command]
 pub fn import_file(
     state: State<'_, AppState>,
@@ -102,144 +162,41 @@ pub fn import_file(
     } else {
         name.trim().to_string()
     };
+    let stem = strip_import_ext(&clean_name).to_string();
 
-    let stem = clean_name
-        .trim_end_matches(".json")
-        .trim_end_matches(".json.gz")
-        .trim_end_matches(".csv")
-        .trim_end_matches(".tsv")
-        .trim_end_matches(".txt")
-        .trim();
-
-    // 1. Si es un archivo .torrent, NUNCA partirlo en líneas de texto binario
+    // .torrent recibido como texto (compatibilidad). La interfaz usa `import_torrent`
+    // con los bytes reales, que es lo único que da un info_hash correcto.
     if clean_name.to_lowercase().ends_with(".torrent")
         || content.starts_with("d8:announce")
         || content.starts_with("d13:announce")
         || content.starts_with("d4:info")
     {
-        let game_title = clean_name
-            .trim_end_matches(".torrent")
-            .replace(['-', '_'], " ")
-            .trim()
-            .to_string();
-
-        let source_id = Uuid::new_v4().to_string();
-        let display_name = format!("🧲 {}", game_title);
-
-        // FIX BUG 8: Extraer SHA-1 info_hash real del diccionario bencode
-        let info_hash = extract_torrent_info_hash(content.as_bytes()).unwrap_or_else(|| {
-            use sha1::{Digest, Sha1};
-            let mut hasher = Sha1::new();
-            hasher.update(content.as_bytes());
-            format!("{:x}", hasher.finalize())
-        });
-        let magnet_link = format!("magnet:?xt=urn:btih:{}&dn={}", info_hash, game_title.replace(' ', "+"));
-
-        let item = UnifiedItem {
-            id: format!("{}:0", source_id),
-            source_id: source_id.clone(),
-            source_name: display_name.clone(),
-            title: game_title.clone(),
-            subtitle: Some("Torrent".to_string()),
-            file_size: None,
-            file_size_bytes: None,
-            link: Some(magnet_link),
-            raw: None,
-        };
-
-        let mut flags = std::collections::HashMap::new();
-        flags.insert("isTorrentSource".to_string(), true);
-
-        let source = Source {
-            id: source_id,
-            name: display_name,
-            active: true,
-            count: 1,
-            mapping: None,
-            pkg: None,
-            flags: Some(flags),
-        };
-
-        state
-            .db
-            .insert_source_with_items(&source, None, &[item])
-            .map_err(|e| format!("Error guardando torrent: {}", e))?;
-
-        return Ok(vec![source]);
+        return import_torrent_bytes(&state, &clean_name, content.as_bytes());
     }
 
-    // 2. Intentar parsear como JSON
-    if let Ok(json_val) = serde_json::from_str::<Value>(&content) {
-        // ¿Es un envelope v2 de IndexLy / paquete del Hub?
-        if let Some(envelope_sources) = parse_v2_envelope(&json_val, stem, stem) {
+    // Paquete de IndexLy (envelope v2)
+    if let DetectedFormat::Json(ref json_val) = detect_format(&content, mapping.as_ref()) {
+        if let Some(envelope_sources) = parse_v2_envelope(json_val, &stem, &stem) {
             let mut batch = Vec::new();
             let mut created_sources = Vec::new();
-
             for s in envelope_sources {
                 created_sources.push(s.source.clone());
                 batch.push((s.source, s.raw_content, s.items));
             }
-
             state
                 .db
                 .insert_sources_batch(&batch)
                 .map_err(|e| format!("Error guardando paquete de fuentes: {}", e))?;
-
             return Ok(created_sources);
         }
-
-        // JSON normal de una sola fuente
-        let source_id = Uuid::new_v4().to_string();
-        let items = normalize_json_to_items(&json_val, &source_id, &clean_name, mapping.as_ref());
-        let item_count = items.len();
-        let source = Source {
-            id: source_id,
-            name: clean_name,
-            active: true,
-            count: item_count,
-            mapping,
-            pkg: None,
-            flags: None,
-        };
-
-        state
-            .db
-            .insert_source_with_items(&source, Some(&content), &items)
-            .map_err(|e| format!("Error guardando fuente: {}", e))?;
-
-        return Ok(vec![source]);
     }
 
-    // 2. CSV / TSV / Texto plano
+    // JSON, JSONL, CSV/TSV o texto: una sola fuente
     let source_id = Uuid::new_v4().to_string();
-    let items = if content.contains('\t') && content.lines().count() > 1 {
-        parse_csv_to_items(&content, b'\t', &source_id, &clean_name, mapping.as_ref())
-    } else if content.contains(',') && content.lines().count() > 1 {
-        parse_csv_to_items(&content, b',', &source_id, &clean_name, mapping.as_ref())
-    } else {
-        content
-            .lines()
-            .enumerate()
-            .filter_map(|(idx, line)| {
-                let t = line.trim();
-                if t.is_empty() {
-                    None
-                } else {
-                    Some(UnifiedItem {
-                        id: format!("{}:{}", source_id, idx),
-                        source_id: source_id.clone(),
-                        source_name: clean_name.clone(),
-                        title: t.to_string(),
-                        subtitle: None,
-                        file_size: None,
-                        file_size_bytes: None,
-                        link: None,
-                        raw: None,
-                    })
-                }
-            })
-            .collect()
-    };
+    let items = parse_items(&content, &source_id, &clean_name, mapping.as_ref());
+    if items.is_empty() {
+        return Err("No se encontró ningún elemento en el archivo. Revisa el formato o el campo de título.".to_string());
+    }
 
     let item_count = items.len();
     let source = Source {
@@ -259,6 +216,98 @@ pub fn import_file(
 
     Ok(vec![source])
 }
+
+/// Importa un .torrent a partir de sus bytes (el texto corrompe el binario).
+#[tauri::command]
+pub fn import_torrent(state: State<'_, AppState>, name: String, bytes: Vec<u8>) -> Result<Vec<Source>, String> {
+    import_torrent_bytes(&state, name.trim(), &bytes)
+}
+
+/// Vista previa de un archivo antes de importarlo: formato, columnas, primeras
+/// filas y cómo quedarían los elementos con el mapeo indicado (o el detectado).
+#[tauri::command]
+pub fn preview_import(name: String, content: String, mapping: Option<MappingConfig>) -> Result<ImportPreview, String> {
+    if content.trim().is_empty() {
+        return Err("El archivo está vacío".to_string());
+    }
+    Ok(build_import_preview(name.trim(), &content, mapping.as_ref()))
+}
+
+/// Exporta las fuentes elegidas a un paquete de IndexLy (envelope v2) en la carpeta
+/// de Descargas. Devuelve la ruta del archivo creado.
+#[tauri::command]
+pub fn export_sources(app: AppHandle, state: State<'_, AppState>, ids: Vec<String>) -> Result<String, String> {
+    if ids.is_empty() {
+        return Err("Elige al menos una fuente para exportar".to_string());
+    }
+    let all = state.db.get_sources().map_err(|e| format!("Error leyendo fuentes: {}", e))?;
+    let selected: Vec<Source> = all.into_iter().filter(|s| ids.contains(&s.id)).collect();
+    if selected.is_empty() {
+        return Err("No se encontraron las fuentes elegidas".to_string());
+    }
+
+    let mut packed = Vec::with_capacity(selected.len());
+    for src in &selected {
+        let items = state
+            .db
+            .get_items_by_source(&src.id)
+            .map_err(|e| format!("Error leyendo elementos de {}: {}", src.name, e))?;
+        let d: Vec<Value> = items
+            .iter()
+            .map(|it| {
+                let mut o = serde_json::Map::new();
+                o.insert("title".into(), Value::String(it.title.clone()));
+                if let Some(s) = &it.subtitle {
+                    o.insert("subtitle".into(), Value::String(s.clone()));
+                }
+                if let Some(l) = &it.link {
+                    o.insert("link".into(), Value::String(l.clone()));
+                }
+                if let Some(z) = &it.file_size {
+                    o.insert("size".into(), Value::String(z.clone()));
+                }
+                Value::Object(o)
+            })
+            .collect();
+
+        let mut s = serde_json::json!({
+            "n": src.name,
+            "a": src.active,
+            "m": ["title", "link", "subtitle", "size"],
+            "d": d,
+        });
+        if let Some(p) = &src.pkg {
+            s["p"] = serde_json::json!([p.slug, p.name.clone().unwrap_or_else(|| p.slug.clone())]);
+        }
+        packed.push(s);
+    }
+
+    // "g": false → al reimportar, las fuentes sueltas no se agrupan en un paquete
+    let envelope = serde_json::json!({ "v": 2, "g": false, "s": packed });
+
+    let dir = app
+        .path()
+        .download_dir()
+        .or_else(|_| app.path().document_dir())
+        .map_err(|e| format!("No se encontró la carpeta de Descargas: {}", e))?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let base = if selected.len() == 1 {
+        let slug = sanitize_slug(&selected[0].name);
+        if slug.is_empty() { "fuente".to_string() } else { slug }
+    } else {
+        format!("{}-fuentes", selected.len())
+    };
+    let path = dir.join(format!("indexly-{}-{}.json", base, stamp));
+
+    let body = serde_json::to_string(&envelope).map_err(|e| format!("Error generando el archivo: {}", e))?;
+    std::fs::write(&path, body).map_err(|e| format!("No se pudo guardar el archivo: {}", e))?;
+
+    Ok(path.to_string_lossy().to_string())
+}
+
 
 #[tauri::command]
 pub fn detect_mapping(content: String) -> Result<AutoMappingResult, String> {
@@ -519,18 +568,17 @@ pub fn get_source_mapping_info(
                     });
                 }
             } else {
-                // Posible CSV / TSV
-                let first_line = raw_content.lines().next().unwrap_or("");
-                if first_line.contains('\t') || first_line.contains(',') {
-                    let delim = if first_line.contains('\t') { '\t' } else { ',' };
-                    let cols: Vec<String> = first_line
-                        .split(delim)
-                        .map(|s| s.trim().trim_matches('"').to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect();
-                    if cols.len() > 1 {
-                        available_keys = cols;
+                // JSONL, CSV/TSV o texto: mismas columnas que en la vista previa de importación
+                let preview = build_import_preview(&source.name, raw_content, source.mapping.as_ref());
+                if preview.columns.len() > 1 || preview.format == "jsonl" {
+                    if let Some(first) = preview.rows.first() {
+                        let mut obj = serde_json::Map::new();
+                        for (i, col) in preview.columns.iter().enumerate() {
+                            obj.insert(col.clone(), Value::String(first.get(i).cloned().unwrap_or_default()));
+                        }
+                        sample_raw = Some(Value::Object(obj));
                     }
+                    available_keys = preview.columns;
                 }
             }
         }
@@ -611,10 +659,9 @@ pub fn update_source_mapping(
             } else {
                 new_items = normalize_json_to_items(d_val, &id, &clean_name, Some(&mapping));
             }
-        } else if raw_content.contains('\t') && raw_content.lines().count() > 1 {
-            new_items = parse_csv_to_items(&raw_content, b'\t', &id, &clean_name, Some(&mapping));
-        } else if raw_content.contains(',') && raw_content.lines().count() > 1 {
-            new_items = parse_csv_to_items(&raw_content, b',', &id, &clean_name, Some(&mapping));
+        } else {
+            // JSONL, CSV/TSV (con su separador y cabecera) o texto
+            new_items = parse_items(&raw_content, &id, &clean_name, Some(&mapping));
         }
     }
 

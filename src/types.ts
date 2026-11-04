@@ -15,6 +15,29 @@ export interface MappingConfig {
   title_key?: string | null;
   link_key?: string | null;
   subtitle_key?: string | null;
+  // El backend serializa en camelCase y acepta ambas formas.
+  // Las claves admiten rutas anidadas: "info.title", "links[0].url".
+  titleKey?: string | null;
+  linkKey?: string | null;
+  subtitleKey?: string | null;
+  sizeKey?: string | null;
+  /** Separador de CSV: ",", ";", "\\t" o "|". Vacío = detección automática. */
+  delimiter?: string | null;
+  /** Si la primera fila de un CSV es cabecera (por defecto, sí). */
+  hasHeader?: boolean | null;
+}
+
+/** Resultado de `preview_import`: cómo se leería un archivo antes de importarlo. */
+export interface ImportPreview {
+  format: 'json' | 'jsonl' | 'csv' | 'tsv' | 'text' | 'envelope';
+  delimiter?: string | null;
+  hasHeader: boolean;
+  columns: string[];
+  rows: string[][];
+  mapping: MappingConfig;
+  items: UnifiedItem[];
+  total: number;
+  envelopeSources: number;
 }
 
 export interface PackageInfo {
