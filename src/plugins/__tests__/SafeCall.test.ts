@@ -53,6 +53,24 @@ describe('SafeCallManager', () => {
     expect(thresholdListener).toHaveBeenCalledWith('plugin-reincidente', 10);
   });
 
+  it('safeCallCritical debe registrar el error y relanzarlo', async () => {
+    const error = new Error('Fallo en hook de ciclo de vida');
+
+    await expect(
+      safeCall.safeCallCritical('plugin-critico', () => {
+        throw error;
+      }, 'lifecycle:onload')
+    ).rejects.toBe(error);
+
+    expect(safeCall.getRecentErrorCount('plugin-critico')).toBe(1);
+  });
+
+  it('safeCallCritical debe devolver el valor cuando el hook tiene éxito', async () => {
+    const result = await safeCall.safeCallCritical('plugin-ok', async () => 'listo');
+    expect(result).toBe('listo');
+    expect(safeCall.getRecentErrorCount('plugin-ok')).toBe(0);
+  });
+
   it('debe extraer el pluginId desde una traza de pila con virtual sourceURL', () => {
     const fakeStack = `Error: Algo explotó
     at MiPlugin.onload (indexly-plugin://com.autor.miplugin/main.js:14:15)

@@ -4,7 +4,8 @@ import { Source, SourceActionConfig, LoadedPlugin } from '../types';
 import { HubExplorer } from './HubExplorer';
 import { MappingModal } from './MappingModal';
 import { pluginRegistry } from '../plugins/PluginRegistry';
-import { Folder, Upload, Trash2, ChevronDown, ChevronRight, Globe, Layers, Settings } from 'lucide-react';
+import { Folder, Upload, Trash2, ChevronDown, ChevronRight, Globe, Layers, Settings, Plus } from 'lucide-react';
+import { IconButton, Switch } from '../ui';
 
 interface SourceManagerProps {
   sources: Source[];
@@ -21,17 +22,32 @@ interface SourceManagerProps {
   onOpenHubModal: () => void;
 }
 
-function getSourceAvatarStyle(name: string) {
+/** Degradado estable por nombre (mismo tono que en los resultados). */
+function avatarStyle(name: string): React.CSSProperties {
   let hash = 0;
   for (let i = 0; i < name.length; i++) {
     hash = name.charCodeAt(i) + ((hash << 5) - hash);
   }
   const h1 = Math.abs(hash % 360);
-  const h2 = (h1 + 45) % 360;
-  return {
-    background: `linear-gradient(135deg, hsl(${h1}, 75%, 45%), hsl(${h2}, 85%, 28%))`,
-    color: '#ffffff',
-  };
+  const h2 = (h1 + 40) % 360;
+  return { background: `linear-gradient(135deg, hsl(${h1}, 70%, 32%), hsl(${h2}, 80%, 18%))` };
+}
+
+const LEADING_EMOJI = /^(\p{Extended_Pictographic}(?:️|‍\p{Extended_Pictographic})*)\s*/u;
+
+/**
+ * Avatar de una fuente. Si el nombre empieza por un emoji (p. ej. "🧲 Torrents")
+ * se usa ese emoji como avatar y se quita del texto; si no, la inicial.
+ * Evita `charAt(0)`, que parte los emojis en dos y muestra "�".
+ */
+function getAvatar(name: string): { emoji: string | null; initial: string; label: string } {
+  const match = name.match(LEADING_EMOJI);
+  if (match) {
+    const label = name.slice(match[0].length).trim() || name;
+    return { emoji: match[1], initial: '', label };
+  }
+  const first = Array.from(name.trim())[0] || '?';
+  return { emoji: null, initial: first.toUpperCase(), label: name };
 }
 
 export const SourceManager: React.FC<SourceManagerProps> = ({
@@ -128,6 +144,9 @@ export const SourceManager: React.FC<SourceManagerProps> = ({
     }
   };
 
+  const activeSources = sources.filter((s) => s.active).length;
+  const totalElements = sources.reduce((acc, s) => acc + s.count, 0);
+
   // Agrupar fuentes por paquete (subcarpetas)
   const groups = new Map<string, { name: string; items: Source[] }>();
   const order: ({ type: 'single'; source: Source } | { type: 'group'; slug: string })[] = [];
@@ -146,83 +165,144 @@ export const SourceManager: React.FC<SourceManagerProps> = ({
     groups.get(slug)!.items.push(source);
   }
 
-  const renderPillActions = (s: Source) => (
-    <div className="index-pill-actions">
-      <button
-        type="button"
-        className="action-btn map"
-        onClick={() => setEditingSource(s)}
-        title="Ajustar fuente"
-        aria-label={`Ajustar ${s.name}`}
+  // Fila de una fuente (suelta o dentro de una carpeta)
+  const renderSourceRow = (s: Source, isChild = false) => {
+    const avatar = getAvatar(s.name);
+    return (
+      <div
+        key={s.id}
+        role="listitem"
+        className={`src-row ${isChild ? 'src-row--child' : ''} ${s.active ? '' : 'is-inactive'}`}
       >
-        <Settings size={13} />
-      </button>
+        <div
+          className={`src-row__avatar ${avatar.emoji ? 'src-row__avatar--emoji' : ''}`}
+          style={avatar.emoji ? undefined : avatarStyle(s.name)}
+          aria-hidden="true"
+        >
+          {avatar.emoji ?? avatar.initial}
+        </div>
 
-      {sourceActions
-        .filter((a) => !a.match || a.match(s))
-        .map((a) => (
-          <button
-            key={`${a.pluginId}-${a.id}`}
-            type="button"
-            className="action-btn map"
-            onClick={() => a.onClick(s)}
-            title={a.label}
-            aria-label={`${a.label}: ${s.name}`}
+        <div className="src-row__text">
+          <strong title={s.name}>{avatar.label}</strong>
+          <small>
+            {s.count.toLocaleString('es-ES')} elementos
+            {s.mapping && <span className="src-row__tag">mapeado</span>}
+          </small>
+        </div>
+
+        <div className="src-row__actions">
+          <IconButton
+            label={`Ajustar ${s.name}`}
+            size="sm"
+            className="src-row__hover-btn"
+            onClick={() => setEditingSource(s)}
           >
-            {a.short || a.label}
-          </button>
-        ))}
+            <Settings size={13} />
+          </IconButton>
 
-      <button
-        type="button"
-        className="index-switch"
-        role="switch"
-        aria-checked={s.active}
-        onClick={() => onToggleSource(s.id, !s.active)}
-        title={s.active ? 'Desactivar fuente' : 'Activar fuente'}
-      >
-        <span className="knob" />
-      </button>
+          {sourceActions
+            .filter((a) => !a.match || a.match(s))
+            .map((a) => (
+              <button
+                key={`${a.pluginId}-${a.id}`}
+                type="button"
+                className="action-btn map src-row__hover-btn"
+                onClick={() => a.onClick(s)}
+                title={a.label}
+                aria-label={`${a.label}: ${s.name}`}
+              >
+                {a.short || a.label}
+              </button>
+            ))}
 
-      <button
-        type="button"
-        className="action-btn delete"
-        onClick={() => onDeleteSource(s.id)}
-        title="Eliminar fuente"
-      >
-        <Trash2 size={13} />
-      </button>
-    </div>
-  );
+          <IconButton
+            label={`Eliminar ${s.name}`}
+            size="sm"
+            variant="danger"
+            className="src-row__hover-btn"
+            onClick={() => onDeleteSource(s.id)}
+          >
+            <Trash2 size={13} />
+          </IconButton>
+
+          <Switch
+            checked={s.active}
+            onCheckedChange={(next) => onToggleSource(s.id, next)}
+            label={s.active ? 'Desactivar fuente' : 'Activar fuente'}
+            title={s.active ? 'Desactivar fuente' : 'Activar fuente'}
+          />
+        </div>
+      </div>
+    );
+  };
 
   return (
-    <div
-      className={`index-manager-card ${dragOver ? 'drag-over' : ''} ${collapsed ? 'is-collapsed' : ''}`}
+    <section
+      className={`index-manager-card srcm ${dragOver ? 'drag-over' : ''} ${collapsed ? 'is-collapsed' : ''}`}
+      aria-label="Gestor de fuentes"
       onDragOver={(e) => {
         e.preventDefault();
         setDragOver(true);
       }}
-      onDragLeave={() => setDragOver(false)}
+      onDragLeave={(e) => {
+        // Ignorar el dragleave al pasar sobre elementos hijos
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(false);
+      }}
       onDrop={handleDrop}
     >
-      <div className={`manager-header ${collapsed ? 'header-collapsed' : ''}`}>
-        <div className="manager-title">
-          <div className="manager-icon">
-            <Folder size={collapsed ? 14 : 16} />
-          </div>
-          <div>
-            <h3>
-              Fuentes guardadas
-              <span className="fuentes-count">{sources.length}</span>
-            </h3>
-            <p className="manager-desc">Formatos: JSON, Envelopes v2, CSV, TSV, TXT</p>
-          </div>
-        </div>
+      {/* Cabecera: título + resumen a la izquierda; pestañas y acciones a la derecha */}
+      <header className="srcm__head">
+        <button
+          type="button"
+          className="srcm__title"
+          onClick={handleToggleCollapsed}
+          aria-expanded={!collapsed}
+          title={collapsed ? 'Expandir gestor de fuentes' : 'Plegar gestor de fuentes'}
+        >
+          <span className="srcm__icon" aria-hidden="true">
+            <Layers size={15} />
+          </span>
+          <span className="srcm__titles">
+            <span className="srcm__name">Fuentes</span>
+            <span className="srcm__summary">
+              {sources.length === 0
+                ? 'Sin fuentes todavía'
+                : `${activeSources}/${sources.length} activas · ${totalElements.toLocaleString('es-ES')} elementos`}
+            </span>
+          </span>
+          <ChevronDown size={14} className="srcm__chevron" aria-hidden="true" />
+        </button>
 
-        <div className="manager-actions">
-          <label className="file-label">
-            <Upload size={13} />
-            <span>Añadir archivo</span>
+        <div className="srcm__actions">
+          {!collapsed && (
+            <div className="srcm__tabs" role="tablist" aria-label="Secciones del gestor de fuentes">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'fuentes'}
+                className={`srcm__tab ${activeTab === 'fuentes' ? 'active' : ''}`}
+                onClick={() => setActiveTab('fuentes')}
+              >
+                Mis fuentes
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'hub'}
+                className={`srcm__tab ${activeTab === 'hub' ? 'active' : ''}`}
+                onClick={() => setActiveTab('hub')}
+                title={hubToken ? 'IndexlyHub conectado' : 'IndexlyHub sin conectar'}
+              >
+                <Globe size={12} aria-hidden="true" />
+                Hub
+                <span className={`srcm__hub-dot ${hubToken ? 'is-on' : ''}`} aria-hidden="true" />
+              </button>
+            </div>
+          )}
+
+          <label className="srcm__add" title="Añadir archivo (JSON, Envelopes v2, CSV, TSV, TXT)">
+            <Plus size={14} aria-hidden="true" />
+            <span>Añadir</span>
             <input
               type="file"
               multiple
@@ -231,41 +311,19 @@ export const SourceManager: React.FC<SourceManagerProps> = ({
               style={{ display: 'none' }}
             />
           </label>
-          <button
-            type="button"
-            className="action-btn secondary"
-            onClick={handleToggleCollapsed}
-            title={collapsed ? 'Expandir' : 'Plegar'}
-            style={{ width: '28px', height: '28px', padding: 0, display: 'grid', placeItems: 'center' }}
-          >
-            <ChevronDown size={14} style={{ transform: collapsed ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
-          </button>
         </div>
-      </div>
+      </header>
+
+      {/* Capa visible mientras se arrastran archivos encima de la tarjeta */}
+      {dragOver && (
+        <div className="srcm__drop-overlay" aria-hidden="true">
+          <Upload size={18} />
+          <span>Suelta para importar</span>
+        </div>
+      )}
 
       {!collapsed && (
         <>
-          {/* Pestañas estilo IndexLy: Fuentes / Hub */}
-          <div className="src-tabs">
-            <button
-              type="button"
-              className={`src-tab ${activeTab === 'fuentes' ? 'active' : ''}`}
-              onClick={() => setActiveTab('fuentes')}
-            >
-              <Layers size={13} />
-              <span>Mis Fuentes</span>
-              <span className="src-count">{sources.length}</span>
-            </button>
-            <button
-              type="button"
-              className={`src-tab ${activeTab === 'hub' ? 'active' : ''}`}
-              onClick={() => setActiveTab('hub')}
-            >
-              <Globe size={13} />
-              <span>Explorar Hub</span>
-              <span className={`src-dot ${hubToken ? 'on' : ''}`} />
-            </button>
-          </div>
 
           {activeTab === 'hub' ? (
             <HubExplorer
@@ -280,165 +338,96 @@ export const SourceManager: React.FC<SourceManagerProps> = ({
           ) : (
             <>
               {sources.length === 0 ? (
-                <div className="drop-hint">
-                  Arrastra y suelta aquí tus archivos o pulsa en <strong>Añadir archivo</strong>
+                <div className="srcm__empty">
+                  <span className="srcm__empty-icon" aria-hidden="true">
+                    <Upload size={18} />
+                  </span>
+                  <strong>Arrastra aquí tus índices</strong>
+                  <span>o pulsa <b>Añadir</b> · JSON, Envelopes v2, CSV, TSV, TXT</span>
                 </div>
               ) : (
-                <div className="indexes-grid-list">
+                <div className="src-list" role="list">
                   {order.map((entry) => {
                     if (entry.type === 'single') {
-                      const s = entry.source;
-                      const initial = s.name.charAt(0).toUpperCase();
-                      return (
-                        <div key={s.id} className={`index-pill ${s.active ? 'active' : 'inactive'}`}>
-                          <div className="index-pill-info">
-                            <div className="index-avatar" style={getSourceAvatarStyle(s.name)}>
-                              {initial}
-                            </div>
-                            <div className="index-text">
-                              <strong>{s.name}</strong>
-                              <small>
-                                {s.count.toLocaleString('es-ES')} elementos
-                                {s.mapping && <span className="mapped-badge">mapeado</span>}
-                              </small>
-                            </div>
-                          </div>
-
-                          {renderPillActions(s)}
-                        </div>
-                      );
+                      return renderSourceRow(entry.source);
                     }
 
-                    // Grupo de paquete (Subcarpeta)
+                    // Grupo de paquete (subcarpeta)
                     const g = groups.get(entry.slug);
                     if (!g) return null;
-                    if (g.items.length <= 1) {
-                      const s = g.items[0];
-                      const initial = s.name.charAt(0).toUpperCase();
-                      return (
-                        <div key={s.id} className={`index-pill ${s.active ? 'active' : 'inactive'}`}>
-                          <div className="index-pill-info">
-                            <div className="index-avatar" style={getSourceAvatarStyle(s.name)}>
-                              {initial}
-                            </div>
-                            <div className="index-text">
-                              <strong>{s.name}</strong>
-                              <small>
-                                {s.count.toLocaleString('es-ES')} elementos
-                                {s.mapping && <span className="mapped-badge">mapeado</span>}
-                              </small>
-                            </div>
-                          </div>
-
-                          {renderPillActions(s)}
-                        </div>
-                      );
-                    }
+                    if (g.items.length <= 1) return renderSourceRow(g.items[0]);
 
                     const isPkgCollapsed = collapsedPackages[entry.slug] ?? true;
                     const totalItems = g.items.reduce((acc, i) => acc + i.count, 0);
-                    const allActive = g.items.every((i) => i.active);
-                    const noneActive = g.items.every((i) => !i.active);
+                    const activeCount = g.items.filter((i) => i.active).length;
+                    const allActive = activeCount === g.items.length;
+                    const noneActive = activeCount === 0;
+                    const pkgAvatar = getAvatar(g.name);
 
                     return (
-                      <div key={entry.slug} className={`pkg-group ${isPkgCollapsed ? 'collapsed' : ''}`}>
-                        {/* Cabecera de la subcarpeta / paquete */}
+                      <div
+                        key={entry.slug}
+                        className={`src-pkg ${isPkgCollapsed ? 'is-collapsed' : 'is-open'} ${noneActive ? 'is-inactive' : ''}`}
+                        role="listitem"
+                      >
+                        {/* Cabecera de la carpeta: toda la fila pliega/despliega */}
                         <div
-                          className={`index-pill pkg-header ${noneActive ? 'inactive' : 'active'}`}
-                          style={{
-                            background: '#0c1322',
-                            borderColor: 'var(--color-primary-border)',
-                            cursor: 'pointer',
-                          }}
+                          className="src-row src-row--pkg"
+                          role="button"
+                          tabIndex={0}
+                          aria-expanded={!isPkgCollapsed}
                           onClick={(e) => {
-                            if ((e.target as HTMLElement).closest('.index-pill-actions, .index-switch, .action-btn')) return;
+                            if ((e.target as HTMLElement).closest('.src-row__actions')) return;
                             togglePackageCollapse(entry.slug);
                           }}
-                        >
-                          <button
-                            type="button"
-                            className="pkg-chevron"
-                            onClick={(e) => {
-                              e.stopPropagation();
+                          onKeyDown={(e) => {
+                            if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) {
+                              e.preventDefault();
                               togglePackageCollapse(entry.slug);
-                            }}
-                            title={isPkgCollapsed ? 'Expandir carpeta' : 'Plegar carpeta'}
-                          >
-                            {isPkgCollapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
-                          </button>
+                            }
+                          }}
+                        >
+                          <ChevronRight size={14} className="src-row__chevron" aria-hidden="true" />
 
-                          <div className="index-pill-info">
-                            <div className="index-avatar" style={getSourceAvatarStyle(g.name)}>
-                              <Folder size={18} />
-                            </div>
-                            <div className="index-text">
-                              <strong>{g.name}</strong>
-                              <small>
-                                {g.items.length} fuentes · {totalItems.toLocaleString('es-ES')} elementos
-                                {noneActive ? ' · desactivado' : ''}
-                              </small>
-                            </div>
+                          <div className="src-row__avatar src-row__avatar--folder" style={avatarStyle(g.name)} aria-hidden="true">
+                            {pkgAvatar.emoji ?? <Folder size={16} />}
                           </div>
 
-                          <div className="index-pill-actions">
-                            <button
-                              type="button"
-                              className="index-switch"
-                              role="switch"
-                              aria-checked={allActive}
-                              onClick={() => onTogglePackage(entry.slug, !allActive)}
-                              title={allActive ? 'Desactivar paquete completo' : 'Activar paquete completo'}
-                            >
-                              <span className="knob" />
-                            </button>
+                          <div className="src-row__text">
+                            <strong title={g.name}>{pkgAvatar.label}</strong>
+                            <small>
+                              {g.items.length} fuentes · {totalItems.toLocaleString('es-ES')} elementos
+                            </small>
+                          </div>
 
-                            <button
-                              type="button"
-                              className="action-btn delete"
+                          <div className="src-row__actions">
+                            {!allActive && !noneActive && (
+                              <span className="src-row__partial" title={`${activeCount} de ${g.items.length} fuentes activas`}>
+                                {activeCount}/{g.items.length}
+                              </span>
+                            )}
+                            <IconButton
+                              label={`Eliminar paquete ${g.name}`}
+                              size="sm"
+                              variant="danger"
+                              className="src-row__hover-btn"
                               onClick={() => onDeletePackage(entry.slug)}
-                              title="Eliminar paquete completo"
                             >
                               <Trash2 size={13} />
-                            </button>
+                            </IconButton>
+                            <Switch
+                              checked={allActive}
+                              onCheckedChange={(next) => onTogglePackage(entry.slug, next)}
+                              label={allActive ? 'Desactivar paquete completo' : 'Activar paquete completo'}
+                              title={allActive ? 'Desactivar paquete completo' : 'Activar paquete completo'}
+                            />
                           </div>
                         </div>
 
-                        {/* Fuentes hijas dentro de la carpeta */}
+                        {/* Fuentes hijas, con línea de árbol */}
                         {!isPkgCollapsed && (
-                          <div className="pkg-children">
-                            {g.items.map((child) => {
-                              const initial = child.name.charAt(0).toUpperCase();
-                              return (
-                                <div
-                                  key={child.id}
-                                  className={`index-pill ${child.active ? 'active' : 'inactive'}`}
-                                  style={{ padding: '8px 10px' }}
-                                >
-                                  <div className="index-pill-info">
-                                    <div
-                                      className="index-avatar"
-                                      style={{
-                                        ...getSourceAvatarStyle(child.name),
-                                        width: '32px',
-                                        height: '32px',
-                                        fontSize: '13px',
-                                      }}
-                                    >
-                                      {initial}
-                                    </div>
-                                    <div className="index-text">
-                                      <strong style={{ fontSize: '13px' }}>{child.name}</strong>
-                                      <small>
-                                        {child.count.toLocaleString('es-ES')} elementos
-                                        {child.mapping && <span className="mapped-badge">mapeado</span>}
-                                      </small>
-                                    </div>
-                                  </div>
-
-                                  {renderPillActions(child)}
-                                </div>
-                              );
-                            })}
+                          <div className="src-pkg__children" role="list">
+                            {g.items.map((child) => renderSourceRow(child, true))}
                           </div>
                         )}
                       </div>
@@ -459,6 +448,6 @@ export const SourceManager: React.FC<SourceManagerProps> = ({
           showToast={showToast}
         />
       )}
-    </div>
+    </section>
   );
 };

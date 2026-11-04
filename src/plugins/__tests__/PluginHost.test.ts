@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { PluginHost } from '../host/PluginHost';
+import { PluginHost, detectPluginRuntime } from '../host/PluginHost';
 import { PluginManifest } from '../types';
 import { safeModeManager } from '../host/SafeMode';
 
@@ -118,5 +118,106 @@ describe('PluginHost - Registro y Ciclo de Vida', () => {
     expect(info?.lastError).toContain('superó el tiempo límite de 10000ms');
 
     vi.useRealTimers();
+  });
+
+  it('debe marcar el plugin como fallido si onload lanza una excepción', async () => {
+    const brokenPluginCode = `
+      const { Plugin } = require('indexly');
+      module.exports = class BrokenPlugin extends Plugin {
+        async onload() {
+          throw new Error('fallo controlado en onload');
+        }
+      };
+    `;
+
+    host.registerPlugin(sampleManifest, brokenPluginCode);
+    const enabled = await host.enablePlugin('com.test.sample');
+
+    expect(enabled).toBe(false);
+    expect(host.isPluginLoaded('com.test.sample')).toBe(false);
+    expect(host.getPluginState('com.test.sample')).toBe('failed');
+
+    const info = host.getLoadedPlugins().find((p) => p.manifest.id === 'com.test.sample');
+    expect(info?.hasError).toBe(true);
+    expect(info?.lastError).toContain('fallo controlado en onload');
+  });
+
+  it('debe serializar activaciones concurrentes del mismo plugin', async () => {
+    (globalThis as any).__indexlyLoadCount = 0;
+    const pluginCode = `
+      const { Plugin } = require('indexly');
+      module.exports = class ConcurrentPlugin extends Plugin {
+        async onload() {
+          globalThis.__indexlyLoadCount = (globalThis.__indexlyLoadCount || 0) + 1;
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+      };
+    `;
+
+    host.registerPlugin(sampleManifest, pluginCode);
+    const results = await Promise.all([
+      host.enablePlugin('com.test.sample'),
+      host.enablePlugin('com.test.sample'),
+      host.enablePlugin('com.test.sample'),
+    ]);
+
+    expect(results).toEqual([true, true, true]);
+    expect((globalThis as any).__indexlyLoadCount).toBe(1);
+    delete (globalThis as any).__indexlyLoadCount;
+  });
+
+  it('debe detectar el runtime por manifiesto y usar el adaptador legacy', async () => {
+    expect(detectPluginRuntime({ id: 'legacy', name: 'Legacy' })).toBe('legacy');
+    expect(detectPluginRuntime({ ...sampleManifest })).toBe('modern');
+
+    const unloadSpy = vi.fn();
+    host.registerRuntimeAdapter({
+      kind: 'legacy',
+      load: () => ({ onload: async () => {} }),
+      unload: unloadSpy,
+    });
+
+    const legacyManifest = {
+      id: 'legacy.test',
+      name: 'Legacy Test',
+      version: '1.0.0',
+      description: '',
+      author: 'Tester',
+      license: 'MIT',
+      main: 'index.js',
+    } as unknown as PluginManifest;
+
+    host.registerPlugin(legacyManifest, 'IndexLy.plugin({ activate() {} });', undefined, {
+      runtime: 'legacy',
+    });
+
+    expect(await host.enablePlugin('legacy.test')).toBe(true);
+    expect(host.getPluginState('legacy.test')).toBe('active');
+    expect(await host.disablePlugin('legacy.test')).toBe(true);
+    expect(unloadSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('debe detectar cambios de bundle y recargar el código nuevo', async () => {
+    const v1 = `
+      const { Plugin } = require('indexly');
+      module.exports = class extends Plugin { async onload() {} };
+    `;
+    const v2 = `
+      const { Plugin } = require('indexly');
+      module.exports = class extends Plugin {
+        async onload() { globalThis.__indexlyVersion = 2; }
+      };
+    `;
+
+    host.registerPlugin(sampleManifest, v1);
+    expect(host.hasBundleChanged('com.test.sample', v1)).toBe(false);
+    expect(await host.enablePlugin('com.test.sample')).toBe(true);
+
+    expect(host.hasBundleChanged('com.test.sample', v2)).toBe(true);
+    host.registerPlugin(sampleManifest, v2);
+    expect(await host.reloadPlugin('com.test.sample')).toBe(true);
+    expect((globalThis as any).__indexlyVersion).toBe(2);
+
+    delete (globalThis as any).__indexlyVersion;
   });
 });

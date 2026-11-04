@@ -75,6 +75,9 @@ pub struct PluginManifest {
     pub capabilities: Vec<String>,
     #[serde(default)]
     pub author: Option<String>,
+    /// `enabled` se conserva con default `true` para no desactivar manifiestos
+    /// legacy que no declaraban el campo. Las instalaciones nuevas lo fuerzan a
+    /// `false` explícitamente en `PluginManager::install_plugin`.
     #[serde(default = "default_true")]
     pub enabled: bool,
     #[serde(default)]
@@ -87,6 +90,15 @@ pub struct PluginManifest {
     pub main: Option<String>,
     #[serde(default)]
     pub styles: Option<String>,
+    /// Versión del esquema de manifiesto. Ausente en extensiones legacy.
+    #[serde(default, rename = "schemaVersion", alias = "schema_version")]
+    pub schema_version: Option<u32>,
+    /// Versión mínima del host. Ausente en extensiones legacy.
+    #[serde(default, rename = "minHostVersion", alias = "min_host_version")]
+    pub min_host_version: Option<String>,
+    /// Permisos nuevos detectados durante una actualización y aún no consentidos.
+    #[serde(default, rename = "pendingPermissions", alias = "pending_permissions")]
+    pub pending_permissions: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

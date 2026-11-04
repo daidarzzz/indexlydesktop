@@ -87,6 +87,23 @@ pub fn sanitize_fts5_query(input: &str) -> String {
     tokens.join(" ")
 }
 
+/// Versión actual del esquema. Cada incremento debe añadir una migración
+/// transaccional idempotente en `init_schema`.
+pub const CURRENT_SCHEMA_VERSION: i64 = 3;
+
+/// Comprueba si una columna existe usando `PRAGMA table_info`.
+fn column_exists(conn: &Connection, table: &str, column: &str) -> rusqlite::Result<bool> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({})", table))?;
+    let mut rows = stmt.query([])?;
+    while let Some(row) = rows.next()? {
+        let name: String = row.get(1)?;
+        if name == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 pub struct Database {
     conn: Mutex<Connection>,
 }
@@ -111,9 +128,9 @@ impl Database {
     }
 
     fn init_schema(&self) -> rusqlite::Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let mut conn = self.conn.lock().unwrap();
 
-        // Optimizaciones de rendimiento SQLite
+        // Optimizaciones de rendimiento SQLite (no estructurales, no bloqueantes)
         conn.execute_batch("
             PRAGMA journal_mode = WAL;
             PRAGMA synchronous = NORMAL;
@@ -121,104 +138,171 @@ impl Database {
             PRAGMA temp_store = MEMORY;
         ")?;
 
-        // 1. Tablas base (si no existen)
-        conn.execute_batch("
-            CREATE TABLE IF NOT EXISTS sources (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                active INTEGER NOT NULL DEFAULT 1,
-                mapping_json TEXT,
-                pkg_json TEXT,
-                flags_json TEXT,
-                raw_content TEXT
-            );
+        let mut version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
 
-            CREATE TABLE IF NOT EXISTS items (
-                id TEXT PRIMARY KEY,
-                source_id TEXT NOT NULL,
-                source_name TEXT NOT NULL,
-                title TEXT NOT NULL,
-                subtitle TEXT,
-                file_size TEXT,
-                file_size_bytes INTEGER,
-                link TEXT,
-                raw_json TEXT
-            );
+        if version >= CURRENT_SCHEMA_VERSION {
+            // `PRAGMA optimize` es barato y solo actúa cuando SQLite lo considera útil.
+            let _ = conn.execute_batch("PRAGMA optimize;");
+            return Ok(());
+        }
 
-            CREATE TABLE IF NOT EXISTS _keychain (
-                key TEXT PRIMARY KEY,
-                val TEXT NOT NULL
-            );
-        ")?;
+        // ------------------------------------------------------------------
+        // v1: tablas base. Idempotente para bases de datos preexistentes.
+        // ------------------------------------------------------------------
+        if version < 1 {
+            let tx = conn.transaction()?;
+            tx.execute_batch("
+                CREATE TABLE IF NOT EXISTS sources (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    active INTEGER NOT NULL DEFAULT 1,
+                    mapping_json TEXT,
+                    pkg_json TEXT,
+                    flags_json TEXT,
+                    raw_content TEXT
+                );
 
-        // 2. Migraciones incrementales si la base de datos existía previamente en versiones antiguas
-        let _ = conn.execute("ALTER TABLE sources ADD COLUMN flags_json TEXT", []);
-        let _ = conn.execute("ALTER TABLE items ADD COLUMN file_size_bytes INTEGER", []);
+                CREATE TABLE IF NOT EXISTS items (
+                    id TEXT PRIMARY KEY,
+                    source_id TEXT NOT NULL,
+                    source_name TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    subtitle TEXT,
+                    file_size TEXT,
+                    file_size_bytes INTEGER,
+                    link TEXT,
+                    raw_json TEXT
+                );
 
-        // 3. Backfill de file_size_bytes para datos existentes ANTES de activar los triggers de FTS5
-        let rows_to_update: Vec<(String, i64)> = {
-            if let Ok(mut stmt) = conn.prepare("SELECT id, file_size FROM items WHERE file_size_bytes IS NULL AND file_size IS NOT NULL") {
-                stmt.query_map([], |row| {
+                CREATE TABLE IF NOT EXISTS _keychain (
+                    key TEXT PRIMARY KEY,
+                    val TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS plugin_storage (
+                    plugin_id TEXT NOT NULL,
+                    key TEXT NOT NULL,
+                    val TEXT NOT NULL,
+                    updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+                    PRIMARY KEY (plugin_id, key)
+                );
+                CREATE INDEX IF NOT EXISTS idx_plugin_storage_plugin ON plugin_storage(plugin_id);
+            ")?;
+            tx.pragma_update(None, "user_version", 1i64)?;
+            tx.commit()?;
+            version = 1;
+        }
+
+        // ------------------------------------------------------------------
+        // v2: columnas incrementales + backfill de file_size_bytes.
+        // ------------------------------------------------------------------
+        if version < 2 {
+            let tx = conn.transaction()?;
+
+            if !column_exists(&tx, "sources", "flags_json")? {
+                tx.execute("ALTER TABLE sources ADD COLUMN flags_json TEXT", [])?;
+            }
+            if !column_exists(&tx, "items", "file_size_bytes")? {
+                tx.execute("ALTER TABLE items ADD COLUMN file_size_bytes INTEGER", [])?;
+            }
+
+            let rows_to_update: Vec<(String, Option<String>)> = {
+                let mut stmt = tx.prepare(
+                    "SELECT id, file_size FROM items WHERE file_size_bytes IS NULL AND file_size IS NOT NULL",
+                )?;
+                let mapped = stmt.query_map([], |row| {
                     let id: String = row.get(0)?;
                     let file_size: Option<String> = row.get(1)?;
                     Ok((id, file_size))
-                })
-                .ok()
-                .map(|mapped| {
-                    mapped.filter_map(|r| r.ok()).filter_map(|(id, size_opt)| {
-                        parse_file_size_bytes(size_opt.as_deref()).map(|bytes| (id, bytes))
-                    }).collect()
-                })
-                .unwrap_or_default()
-            } else {
-                Vec::new()
-            }
-        };
+                })?;
+                mapped.filter_map(|r| r.ok()).collect()
+            };
 
-        for (id, bytes) in rows_to_update {
-            let _ = conn.execute("UPDATE items SET file_size_bytes = ?1 WHERE id = ?2", rusqlite::params![bytes, id]);
+            {
+                let mut update = tx.prepare("UPDATE items SET file_size_bytes = ?1 WHERE id = ?2")?;
+                for (id, size) in rows_to_update {
+                    if let Some(bytes) = parse_file_size_bytes(size.as_deref()) {
+                        update.execute(params![bytes, id])?;
+                    }
+                }
+            }
+
+            tx.pragma_update(None, "user_version", 2i64)?;
+            tx.commit()?;
+            version = 2;
         }
 
-        // 4. Creación segura de índices, tablas FTS5 y disparadores
-        conn.execute_batch("
-            CREATE INDEX IF NOT EXISTS idx_items_source ON items(source_id);
-            CREATE INDEX IF NOT EXISTS idx_items_file_size ON items(file_size_bytes);
+        // ------------------------------------------------------------------
+        // v3: índices, FTS5, triggers y limpieza única de imports corruptos.
+        // El rebuild de FTS ocurre una sola vez por migración, no en cada arranque.
+        // ------------------------------------------------------------------
+        if version < 3 {
+            let tx = conn.transaction()?;
 
-            CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
-                title,
-                subtitle,
-                content='items',
-                content_rowid='rowid'
-            );
+            // Limpieza de fuentes corruptas o imports binarios no válidos de versiones previas
+            tx.execute(
+                "DELETE FROM items WHERE source_id IN (SELECT id FROM sources WHERE name LIKE '%.torrent' OR name LIKE '%FOjsK%' OR name LIKE '%url-list%' OR name LIKE '%announce%')",
+                [],
+            )?;
+            tx.execute(
+                "DELETE FROM sources WHERE name LIKE '%.torrent' OR name LIKE '%FOjsK%' OR name LIKE '%url-list%' OR name LIKE '%announce%'",
+                [],
+            )?;
 
-            INSERT INTO items_fts(items_fts) VALUES('rebuild');
+            tx.execute_batch("
+                CREATE INDEX IF NOT EXISTS idx_items_source ON items(source_id);
+                CREATE INDEX IF NOT EXISTS idx_items_file_size ON items(file_size_bytes);
 
-            CREATE TRIGGER IF NOT EXISTS items_ai AFTER INSERT ON items BEGIN
-                INSERT INTO items_fts(rowid, title, subtitle) VALUES (new.rowid, new.title, new.subtitle);
-            END;
+                CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
+                    title,
+                    subtitle,
+                    content='items',
+                    content_rowid='rowid'
+                );
 
-            CREATE TRIGGER IF NOT EXISTS items_ad AFTER DELETE ON items BEGIN
-                INSERT INTO items_fts(items_fts, rowid, title, subtitle) VALUES('delete', old.rowid, old.title, old.subtitle);
-            END;
+                CREATE TRIGGER IF NOT EXISTS items_ai AFTER INSERT ON items BEGIN
+                    INSERT INTO items_fts(rowid, title, subtitle) VALUES (new.rowid, new.title, new.subtitle);
+                END;
 
-            CREATE TRIGGER IF NOT EXISTS items_au AFTER UPDATE ON items BEGIN
-                INSERT INTO items_fts(items_fts, rowid, title, subtitle) VALUES('delete', old.rowid, old.title, old.subtitle);
-                INSERT INTO items_fts(rowid, title, subtitle) VALUES (new.rowid, new.title, new.subtitle);
-            END;
-        ")?;
+                CREATE TRIGGER IF NOT EXISTS items_ad AFTER DELETE ON items BEGIN
+                    INSERT INTO items_fts(items_fts, rowid, title, subtitle) VALUES('delete', old.rowid, old.title, old.subtitle);
+                END;
 
-        // Limpieza de fuentes corruptas o imports binarios no válidos de versiones previas
-        let _ = conn.execute(
-            "DELETE FROM items WHERE source_id IN (SELECT id FROM sources WHERE name LIKE '%.torrent' OR name LIKE '%FOjsK%' OR name LIKE '%url-list%' OR name LIKE '%announce%')",
-            [],
-        );
-        let _ = conn.execute(
-            "DELETE FROM sources WHERE name LIKE '%.torrent' OR name LIKE '%FOjsK%' OR name LIKE '%url-list%' OR name LIKE '%announce%'",
-            [],
-        );
-        let _ = conn.execute("VACUUM", []);
+                CREATE TRIGGER IF NOT EXISTS items_au AFTER UPDATE ON items BEGIN
+                    INSERT INTO items_fts(items_fts, rowid, title, subtitle) VALUES('delete', old.rowid, old.title, old.subtitle);
+                    INSERT INTO items_fts(rowid, title, subtitle) VALUES (new.rowid, new.title, new.subtitle);
+                END;
+            ")?;
 
+            tx.execute("INSERT INTO items_fts(items_fts) VALUES('rebuild')", [])?;
+
+            tx.pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION)?;
+            tx.commit()?;
+        }
+
+        // Optimización ligera; nunca VACUUM ni rebuild en el arranque normal.
+        let _ = conn.execute_batch("PRAGMA optimize;");
         Ok(())
+    }
+
+    /// Reconstruye el índice FTS5 de forma explícita (reparación manual).
+    pub fn rebuild_fts(&self) -> rusqlite::Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("INSERT INTO items_fts(items_fts) VALUES('rebuild')", [])?;
+        Ok(())
+    }
+
+    /// Compacta la base de datos. Operación potencialmente costosa y explícita.
+    pub fn vacuum(&self) -> rusqlite::Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("VACUUM", [])?;
+        Ok(())
+    }
+
+    /// Devuelve la versión de esquema actualmente aplicada.
+    pub fn schema_version(&self) -> rusqlite::Result<i64> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row("PRAGMA user_version", [], |row| row.get(0))
     }
 
     pub fn insert_source_with_items(
@@ -837,6 +921,50 @@ impl Database {
         conn.execute("DELETE FROM _keychain WHERE key = ?1", params![key])?;
         Ok(())
     }
+
+    // ========================================================================
+    // Plugin Storage Nativo (SQLite persistente compartido dev / build)
+    // ========================================================================
+
+    pub fn plugin_storage_get(&self, plugin_id: &str, key: &str) -> rusqlite::Result<Option<String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT val FROM plugin_storage WHERE plugin_id = ?1 AND key = ?2")?;
+        let mut rows = stmt.query(params![plugin_id, key])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(row.get(0)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn plugin_storage_set(&self, plugin_id: &str, key: &str, val: &str) -> rusqlite::Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO plugin_storage (plugin_id, key, val, updated_at) VALUES (?1, ?2, ?3, strftime('%s', 'now'))",
+            params![plugin_id, key, val],
+        )?;
+        Ok(())
+    }
+
+    pub fn plugin_storage_delete(&self, plugin_id: &str, key: &str) -> rusqlite::Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM plugin_storage WHERE plugin_id = ?1 AND key = ?2",
+            params![plugin_id, key],
+        )?;
+        Ok(())
+    }
+
+    pub fn plugin_storage_list_keys(&self, plugin_id: &str) -> rusqlite::Result<Vec<String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT key FROM plugin_storage WHERE plugin_id = ?1 ORDER BY key ASC")?;
+        let rows = stmt.query_map(params![plugin_id], |row| row.get(0))?;
+        let mut keys = Vec::new();
+        for k in rows {
+            keys.push(k?);
+        }
+        Ok(keys)
+    }
 }
 
 #[cfg(test)]
@@ -1224,5 +1352,117 @@ mod tests {
         assert_eq!(file_size_bytes, Some(2684354560)); // 2.5 GB en bytes
 
         let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn test_schema_migrations_are_versioned_and_idempotent() {
+        let db_path = std::env::temp_dir().join(format!(
+            "test_migrations_{}.db",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+
+        // Base de datos legacy: user_version = 0, sin flags_json ni file_size_bytes.
+        {
+            let conn = rusqlite::Connection::open(&db_path).unwrap();
+            conn.execute_batch(
+                "
+                CREATE TABLE sources (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    active INTEGER NOT NULL DEFAULT 1,
+                    mapping_json TEXT,
+                    pkg_json TEXT,
+                    raw_content TEXT
+                );
+
+                CREATE TABLE items (
+                    id TEXT PRIMARY KEY,
+                    source_id TEXT NOT NULL,
+                    source_name TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    subtitle TEXT,
+                    file_size TEXT,
+                    link TEXT,
+                    raw_json TEXT
+                );
+
+                INSERT INTO sources (id, name, active) VALUES ('src1', 'Legacy Source', 1);
+                INSERT INTO items (id, source_id, source_name, title, file_size)
+                VALUES ('legacy1', 'src1', 'Legacy Source', 'Ubuntu Linux', '2.5 GB');
+                ",
+            )
+            .unwrap();
+        }
+
+        // Primera apertura: aplica todas las migraciones y reconstruye FTS una vez.
+        {
+            let db = Database::new(&db_path).expect("La migración inicial debe completarse");
+            assert_eq!(db.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
+            let res = db.search("ubuntu", None, "relevance", 10, 0).unwrap();
+            assert_eq!(res.total, 1);
+            assert_eq!(res.items[0].file_size_bytes, Some(2684354560));
+        }
+
+        // Segunda apertura: no debe re-migrar ni reconstruir FTS; los datos persisten.
+        {
+            let db = Database::new(&db_path).expect("La reapertura no debe fallar");
+            assert_eq!(db.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
+            let res = db.search("ubuntu", None, "relevance", 10, 0).unwrap();
+            assert_eq!(res.total, 1);
+
+            // La reparación explícita sigue disponible bajo demanda.
+            db.rebuild_fts().unwrap();
+            assert_eq!(db.search("ubuntu", None, "relevance", 10, 0).unwrap().total, 1);
+            db.vacuum().unwrap();
+        }
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn test_scale_measurement_5000_items() {
+        let db = Database::in_memory().unwrap();
+        let source = Source {
+            id: "src_scale".to_string(),
+            name: "Scale Source".to_string(),
+            active: true,
+            count: 5000,
+            mapping: None,
+            pkg: None,
+            flags: None,
+        };
+
+        let items: Vec<UnifiedItem> = (0..5000)
+            .map(|i| UnifiedItem {
+                id: format!("scale-{}", i),
+                source_id: "src_scale".to_string(),
+                source_name: "Scale Source".to_string(),
+                title: format!("Game {} Deluxe Edition", i),
+                subtitle: Some(format!("Item de escala {}", i)),
+                file_size: Some(format!("{} MB", (i % 900) + 1)),
+                file_size_bytes: None,
+                link: None,
+                raw: None,
+            })
+            .collect();
+
+        let ingest_start = Instant::now();
+        db.insert_source_with_items(&source, None, &items).unwrap();
+        let ingest_ms = ingest_start.elapsed().as_secs_f64() * 1000.0;
+
+        let search_start = Instant::now();
+        let res = db.search("game", None, "relevance", 50, 0).unwrap();
+        let search_ms = search_start.elapsed().as_secs_f64() * 1000.0;
+
+        println!(
+            "[scale] 5000 items: ingesta={:.1}ms búsqueda={:.1}ms total={}",
+            ingest_ms, search_ms, res.total
+        );
+
+        assert_eq!(res.total, 5000);
+        assert_eq!(res.items.len(), 50);
     }
 }

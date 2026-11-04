@@ -1,0 +1,28 @@
+{
+  "id": "torrently",
+  "name": "TorrentLy",
+  "version": "2.0.0",
+  "description": "Gestor de torrents real: detecta qBittorrent automáticamente y, si no está disponible, abre los magnets en tu cliente por defecto. Sin configuración obligatoria. Una sola fuente «🧲 Torrents» en el buscador.",
+  "permissions": [
+    "network",
+    "ui",
+    "storage",
+    "settings",
+    "os:windows",
+    "data:write"
+  ],
+  "capabilities": [
+    "ui:slots",
+    "ui:section",
+    "ui:modal",
+    "storage",
+    "settings"
+  ],
+  "author": "IndexLy Team",
+  "enabled": true,
+  "entry_ui": "index.js",
+  "entry_backend": null,
+  "settings": null,
+  "main": null,
+  "styles": null
+}

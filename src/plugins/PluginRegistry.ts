@@ -1,8 +1,10 @@
 // src/plugins/PluginRegistry.ts — Motor Co-Kernel de extensibilidad omnipotente para IndexLy
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { pluginHost } from './host/PluginHost';
+import * as React from 'react';
+import { pluginHost, detectPluginRuntime } from './host/PluginHost';
 import { validateAndNormalizeManifest } from './manifest/validator';
+import { ui as uiKit, mount as mountUi, unmount as unmountUi } from '../ui';
 import {
   UnifiedItem,
   LoadedPlugin,
@@ -52,12 +54,16 @@ export type PipelineMiddleware<T = any> = (ctx: T, next: () => Promise<void>) =>
 type Listener = () => void;
 type EventHandler = (data: any) => void;
 
-class IndexedDBPluginStorage {
+class NativePluginStorage {
+  private memoryCache: Map<string, any> = new Map();
   private dbPromise: Promise<IDBDatabase> | null = null;
 
-  private getDB(): Promise<IDBDatabase> {
+  private getLegacyIDB(): Promise<IDBDatabase> {
     if (!this.dbPromise) {
       this.dbPromise = new Promise((resolve, reject) => {
+        if (typeof indexedDB === 'undefined') {
+          return reject(new Error('IndexedDB no disponible'));
+        }
         const req = indexedDB.open('indexly_plugin_storage', 1);
         req.onupgradeneeded = () => {
           if (!req.result.objectStoreNames.contains('kv')) {
@@ -71,61 +77,109 @@ class IndexedDBPluginStorage {
     return this.dbPromise;
   }
 
-  async get(pluginId: string, key: string): Promise<any> {
+  private async readLegacy(pluginId: string, key: string): Promise<any> {
     try {
-      const db = await this.getDB();
-      return new Promise((resolve) => {
+      const db = await this.getLegacyIDB();
+      const val = await new Promise<any>((resolve) => {
         const tx = db.transaction('kv', 'readonly');
         const req = tx.objectStore('kv').get(`${pluginId}:${key}`);
-        req.onsuccess = () => {
-          if (req.result !== undefined) {
-            resolve(req.result);
-          } else {
-            const legacy = localStorage.getItem(`plx_${pluginId}_${key}`);
-            try {
-              resolve(legacy ? JSON.parse(legacy) : null);
-            } catch {
-              resolve(legacy);
-            }
-          }
-        };
-        req.onerror = () => resolve(null);
+        req.onsuccess = () => resolve(req.result !== undefined ? req.result : undefined);
+        req.onerror = () => resolve(undefined);
       });
+      if (val !== undefined) return val;
     } catch {
-      return null;
+      // Fallback a localStorage
     }
+
+    if (typeof localStorage !== 'undefined') {
+      const legacy = localStorage.getItem(`plx_${pluginId}_${key}`);
+      if (legacy !== null) {
+        try {
+          return JSON.parse(legacy);
+        } catch {
+          return legacy;
+        }
+      }
+    }
+    return undefined;
+  }
+
+  async get(pluginId: string, key: string): Promise<any> {
+    // 1. Intentar desde SQLite nativo
+    try {
+      const raw = await invoke<string | null>('plugin_storage_get', { pluginId, key });
+      if (raw !== null && raw !== undefined) {
+        try {
+          const parsed = JSON.parse(raw);
+          this.memoryCache.set(`${pluginId}:${key}`, parsed);
+          return parsed;
+        } catch {
+          this.memoryCache.set(`${pluginId}:${key}`, raw);
+          return raw;
+        }
+      }
+    } catch (err) {
+      // Si estamos en un entorno sin Tauri IPC (tests unitarios web puro)
+      if (this.memoryCache.has(`${pluginId}:${key}`)) {
+        return this.memoryCache.get(`${pluginId}:${key}`);
+      }
+    }
+
+    // 2. Si no estaba en SQLite nativo, migrar automáticamente desde IndexedDB / localStorage previo
+    const legacyVal = await this.readLegacy(pluginId, key);
+    if (legacyVal !== undefined && legacyVal !== null) {
+      // Migrar al instante a SQLite nativo para unificar dev y build
+      await this.set(pluginId, key, legacyVal);
+      return legacyVal;
+    }
+
+    return null;
   }
 
   async set(pluginId: string, key: string, val: any): Promise<void> {
+    this.memoryCache.set(`${pluginId}:${key}`, val);
+    const serialized = typeof val === 'string' ? val : JSON.stringify(val);
+
     try {
-      const db = await this.getDB();
-      return new Promise((resolve) => {
-        const tx = db.transaction('kv', 'readwrite');
-        tx.objectStore('kv').put(val, `${pluginId}:${key}`);
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => resolve();
-      });
+      await invoke('plugin_storage_set', { pluginId, key, val: serialized });
+    } catch (err) {
+      // En tests sin Tauri backend, la memoria ya retiene el valor
+    }
+
+    // Guardar también copia de seguridad en IDB local para no perder compatibilidad offline
+    try {
+      const db = await this.getLegacyIDB();
+      const tx = db.transaction('kv', 'readwrite');
+      tx.objectStore('kv').put(val, `${pluginId}:${key}`);
     } catch {
-      // Ignorar error
+      // No crítico
     }
   }
 
   async remove(pluginId: string, key: string): Promise<void> {
+    this.memoryCache.delete(`${pluginId}:${key}`);
+
     try {
-      const db = await this.getDB();
-      return new Promise((resolve) => {
-        const tx = db.transaction('kv', 'readwrite');
-        tx.objectStore('kv').delete(`${pluginId}:${key}`);
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => resolve();
-      });
+      await invoke('plugin_storage_delete', { pluginId, key });
     } catch {
-      // Ignorar error
+      // Ignorar
+    }
+
+    try {
+      const db = await this.getLegacyIDB();
+      const tx = db.transaction('kv', 'readwrite');
+      tx.objectStore('kv').delete(`${pluginId}:${key}`);
+    } catch {
+      // Ignorar
+    }
+
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(`plx_${pluginId}_${key}`);
     }
   }
 }
 
-const idbStorage = new IndexedDBPluginStorage();
+const idbStorage = new NativePluginStorage();
 
 class PluginRegistry {
   private cardActions: CardActionDefinition[] = [];
@@ -148,9 +202,15 @@ class PluginRegistry {
   private eventHandlers: Map<string, Set<EventHandler>> = new Map();
   private toastHandler: ((msg: string, type?: 'success' | 'warning' | 'error' | 'info') => void) | null = null;
   private currentQuery: string = '';
-  private executedPlugins: Set<string> = new Set();
 
   constructor() {
+    // El host es el único runtime. Este registro aporta el adaptador legacy
+    // (window.IndexLy) sin mantener un segundo conjunto de instancias activas.
+    pluginHost.registerRuntimeAdapter({
+      kind: 'legacy',
+      load: (manifest, code) => this.loadLegacyBundle(manifest.id, code),
+    });
+
     try {
       listen('global-shortcut:pressed', (event: any) => {
         const scStr = String(event.payload || '').toLowerCase();
@@ -448,15 +508,14 @@ class PluginRegistry {
     this.notify();
   }
 
+  /**
+   * Limpia los registros de UI asociados a un plugin.
+   *
+   * No orquesta el ciclo de vida: `PluginHost.disablePlugin()` es quien ejecuta
+   * `onunload`, purga eventos y libera la instancia. Este método solo retira
+   * los elementos visuales/compatibilidad del plugin.
+   */
   public teardownPlugin(pluginId: string) {
-    this.executedPlugins.delete(pluginId);
-
-    if (pluginHost.isPluginLoaded(pluginId)) {
-      pluginHost.disablePlugin(pluginId).catch((err) => {
-        console.error(`[PluginRegistry] Error desactivando plugin ${pluginId} en pluginHost:`, err);
-      });
-    }
-
     // 1. Ejecutar limpiadores y disposables del plugin
     const disposables = this.pluginDisposables.get(pluginId);
     if (disposables) {
@@ -591,26 +650,15 @@ class PluginRegistry {
     modalEl.classList.add('open');
   }
 
-  public async loadPlugins(plugins: LoadedPlugin[]): Promise<void> {
-    const enabledIds = new Set(plugins.filter((p) => p.manifest.enabled).map((p) => p.manifest.id));
-    for (const execId of Array.from(this.executedPlugins)) {
-      if (!enabledIds.has(execId)) {
-        this.teardownPlugin(execId);
-      }
-    }
-
-    for (const p of plugins) {
-      if (p.manifest.settings && Array.isArray(p.manifest.settings)) {
-        this.registerPluginSettingsSchema(p.manifest.id, p.manifest.settings);
-      }
-      if (!p.manifest.enabled) {
-        this.teardownPlugin(p.manifest.id);
-      }
-    }
-
-    // Configurar API global de IndexLy (v3 Co-Kernel)
+  /**
+   * Construye la fachada de API legacy (`IndexLy`) para un plugin concreto.
+   *
+   * Esta fachada solo se usa desde el adaptador legacy registrado en `PluginHost`.
+   * La ejecución y el ciclo de vida siguen perteneciendo al host.
+   */
+  private createLegacyApi(pluginId: string) {
     const self = this;
-    const createPluginApi = (pluginId: string) => ({
+    return {
       apiVersion: 3,
       info: { id: pluginId, name: pluginId, version: '1.0.0' },
 
@@ -650,7 +698,11 @@ class PluginRegistry {
         return res;
       },
       refreshApp: () => {
+        // Los plugins llaman a refreshApp() tras cambiar datos locales (p. ej. la
+        // vault de GameVault). Además de recargar fuentes, hay que re-renderizar
+        // los slots para que la UI refleje el cambio al instante.
         self.emit('sources:changed', {});
+        self.notify();
       },
       getItemsBySource: async (sourceId: string): Promise<UnifiedItem[]> => {
         try {
@@ -903,6 +955,10 @@ class PluginRegistry {
         getActiveView: () => self.getActiveView(),
         setActiveView: (id: string | null) => self.setActiveView(id),
         getRegisteredViews: () => self.getRegisteredViews(),
+        components: uiKit,
+        mount: mountUi,
+        unmount: unmountUi,
+        React,
       },
 
       // OS Bridge nativo de Tauri v2
@@ -947,6 +1003,38 @@ class PluginRegistry {
           },
           query: async (query: string): Promise<any[]> => {
             return await invoke<any[]>('native_sql_query', { query });
+          },
+        },
+        keychain: {
+          get: async (key: string): Promise<string | null> => {
+            try {
+              return await invoke<string | null>('plugin_keychain_get', { key });
+            } catch {
+              return null;
+            }
+          },
+          set: async (key: string, value: string): Promise<void> => {
+            await invoke('plugin_keychain_set', { key, val: value });
+          },
+          delete: async (key: string): Promise<void> => {
+            await invoke('plugin_keychain_delete', { key });
+          },
+        },
+        http: {
+          request: async (options: {
+            method?: string;
+            url: string;
+            headers?: Record<string, string>;
+            body?: string;
+            timeoutMs?: number;
+          }): Promise<{ status: number; headers: Record<string, string>; body: string }> => {
+            return await invoke('plugin_http_request', {
+              method: options.method || 'GET',
+              url: options.url,
+              headers: options.headers,
+              body: options.body,
+              timeoutMs: options.timeoutMs,
+            });
           },
         },
         shortcuts: {
@@ -1026,7 +1114,27 @@ class PluginRegistry {
           }
         },
         add: async (input: any) => {
-          return await (createPluginApi(pluginId) as any).addSource(input);
+          return await (this.createLegacyApi(pluginId) as any).addSource(input);
+        },
+        /**
+         * Crea o actualiza una fuente gestionada por el plugin y reemplaza sus
+         * items en una sola transacción. Es la vía para mantener una fuente
+         * única (p. ej. "🧲 Torrents") sin ensuciar el gestor de fuentes.
+         */
+        syncItems: async (input: {
+          sourceId?: string;
+          name: string;
+          items: UnifiedItem[];
+          flags?: Record<string, boolean>;
+        }): Promise<Source> => {
+          const res = await invoke<Source>('plugin_source_sync_items', {
+            sourceId: input.sourceId,
+            name: input.name,
+            items: input.items,
+            flags: input.flags,
+          });
+          self.emit('sources:changed', {});
+          return res;
         },
       },
 
@@ -1086,15 +1194,22 @@ class PluginRegistry {
       disposable: (fn: () => void) => {
         self.registerDisposable(pluginId, fn);
       },
-    });
+    };
+  }
 
-    (window as any).IndexLy = {
+  /**
+   * Ejecuta un bundle legacy (`IndexLy.register` / `IndexLy.plugin`) dentro del
+   * ciclo de vida del host. El host decide cuándo se carga y se descarga.
+   */
+  private loadLegacyBundle(pluginId: string, code: string): { unload: () => Promise<void> } {
+    const api = this.createLegacyApi(pluginId);
+    const legacyGlobal = {
       apiVersion: 3,
-      getSections: () => self.getSections(),
+      getSections: () => this.getSections(),
+      ui: api.ui,
+      React,
       register: (def: any) => {
-        const pluginId = def.id || (window as any).__current_register_plugin_id || 'unknown';
-        if (typeof def.setup === 'function') {
-          const api = createPluginApi(pluginId);
+        if (typeof def?.setup === 'function') {
           try {
             def.setup(api);
           } catch (err) {
@@ -1103,82 +1218,103 @@ class PluginRegistry {
         }
       },
       plugin: (def: any) => {
-        const pluginId = def.id || (window as any).__current_register_plugin_id || 'unknown';
-        const api = createPluginApi(pluginId);
-        if (typeof def.activate === 'function') {
+        if (typeof def?.activate === 'function') {
           try {
             def.activate(api);
           } catch (err) {
             console.error(`[IndexLy] Error en activate de plugin ${pluginId}:`, err);
           }
-        } else if (typeof def.setup === 'function') {
+        } else if (typeof def?.setup === 'function') {
           try {
             def.setup(api);
           } catch (err) {
             console.error(`[IndexLy] Error en setup de plugin ${pluginId}:`, err);
           }
         }
-        if (typeof def.deactivate === 'function') {
-          self.registerDisposable(pluginId, () => def.deactivate());
+        if (typeof def?.deactivate === 'function') {
+          this.registerDisposable(pluginId, () => def.deactivate());
         }
       },
     };
 
-    (window as any).__indexly_get_sections = () => self.getSections();
-    ((window as any).pluginRuntime = (window as any).pluginRuntime || {}).sections = self.sections;
-
     if (typeof window !== 'undefined') {
+      (window as any).React = (window as any).React || React;
+      (window as any).IndexLy = legacyGlobal;
+      (window as any).__indexly_get_sections = () => this.getSections();
+      (window as any).pluginRuntime = (window as any).pluginRuntime || {};
+      (window as any).pluginRuntime.sections = this.sections;
       (window as any).__pluginHost = pluginHost;
     }
 
-    // Ejecutar todos los plugins habilitados que no hayan sido ejecutados aún
+    // Ejecución síncrona: los errores se propagan al host, que marca el fallo.
+    const runFn = new Function('IndexLy', code);
+    runFn(legacyGlobal);
+
+    return {
+      unload: async () => {
+        this.teardownPlugin(pluginId);
+      },
+    };
+  }
+
+  /**
+   * Sincroniza el catálogo del backend con el host.
+   *
+   * - Registra/actualiza manifiestos normalizados.
+   * - Activa solo los plugins habilitados.
+   * - Desactiva los que dejaron de estarlo.
+   */
+  public async loadPlugins(plugins: LoadedPlugin[]): Promise<void> {
+    const enabledIds = new Set(plugins.filter((p) => p.manifest.enabled).map((p) => p.manifest.id));
+
     for (const p of plugins) {
-      if (p.manifest.enabled && p.js_bundle) {
-        if (this.executedPlugins.has(p.manifest.id)) {
-          continue; // Ya está activo y ejecutado, evitar duplicación de listeners y slots
+      if (p.manifest.settings && Array.isArray(p.manifest.settings)) {
+        this.registerPluginSettingsSchema(p.manifest.id, p.manifest.settings);
+      }
+
+      if (!p.manifest.enabled) {
+        await pluginHost.disablePlugin(p.manifest.id);
+        this.teardownPlugin(p.manifest.id);
+        continue;
+      }
+
+      if (!p.js_bundle) {
+        console.warn(`[PluginRegistry] El plugin '${p.manifest.id}' no tiene bundle ejecutable`);
+        continue;
+      }
+
+      // Detección explícita por manifiesto, no por búsqueda de cadenas en el bundle.
+      const runtime = detectPluginRuntime(p.manifest);
+
+      try {
+        const normalizedManifest = validateAndNormalizeManifest(p.manifest);
+        const styles = p.css_bundle ?? undefined;
+        const wasLoaded = pluginHost.isPluginLoaded(p.manifest.id);
+        const bundleChanged = pluginHost.hasBundleChanged(p.manifest.id, p.js_bundle, styles);
+
+        pluginHost.registerPlugin(normalizedManifest, p.js_bundle, styles, {
+          runtime,
+          origin: 'registry:loadPlugins',
+        });
+
+        // Si el plugin estaba activo y su código cambió (actualización), hay que
+        // descargar la instancia vieja y cargar la nueva. `enablePlugin()` por sí
+        // solo devolvería `true` sin recargar.
+        if (wasLoaded && bundleChanged) {
+          await pluginHost.reloadPlugin(p.manifest.id);
+        } else {
+          await pluginHost.enablePlugin(p.manifest.id);
         }
+      } catch (pluginErr) {
+        console.error(`[PluginHost] Error cargando plugin ${runtime} ${p.manifest.id}:`, pluginErr);
+      }
+    }
 
-        try {
-          this.teardownPlugin(p.manifest.id);
-
-          const isModern =
-            p.js_bundle.includes("require('indexly')") ||
-            p.js_bundle.includes('require("indexly")') ||
-            p.js_bundle.includes('extends Plugin') ||
-            (p.manifest as any).schemaVersion !== undefined ||
-            (p.manifest as any).minAppVersion !== undefined ||
-            (p.manifest as any).minHostVersion !== undefined ||
-            Boolean((p.manifest as any).main && (p.manifest as any).main !== 'index.js');
-
-          if (isModern) {
-            try {
-              const normalizedManifest = validateAndNormalizeManifest(p.manifest);
-              pluginHost.registerPlugin(normalizedManifest, p.js_bundle, p.css_bundle ?? undefined);
-              await pluginHost.enablePlugin(p.manifest.id);
-              this.executedPlugins.add(p.manifest.id);
-            } catch (pluginErr) {
-              console.error(`[PluginHost] Error cargando plugin moderno ${p.manifest.id}:`, pluginErr);
-            }
-          } else {
-            if (p.css_bundle) {
-              let style = document.querySelector(`style[data-plugin="${p.manifest.id}"]`) as HTMLStyleElement | null;
-              if (!style) {
-                style = document.createElement('style');
-                style.setAttribute('data-plugin', p.manifest.id);
-                document.head.appendChild(style);
-              }
-              style.textContent = p.css_bundle;
-            }
-
-            (window as any).__current_register_plugin_id = p.manifest.id;
-            const runFn = new Function('IndexLy', p.js_bundle);
-            runFn((window as any).IndexLy);
-
-            this.executedPlugins.add(p.manifest.id);
-          }
-        } catch (err) {
-          console.error(`[IndexLy] Error cargando plugin ${p.manifest.id}:`, err);
-        }
+    // Desactivar plugins que siguen cargados pero ya no están habilitados.
+    for (const info of pluginHost.getLoadedPlugins()) {
+      if (!enabledIds.has(info.manifest.id) && info.isLoaded) {
+        await pluginHost.disablePlugin(info.manifest.id);
+        this.teardownPlugin(info.manifest.id);
       }
     }
 

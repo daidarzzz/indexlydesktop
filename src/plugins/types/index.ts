@@ -4,6 +4,10 @@
  * Todas las interfaces son estrictamente tipadas sin uso de `any` no controlado.
  */
 
+import type { ReactNode } from 'react';
+import type { Root } from 'react-dom/client';
+import type { UiKit } from '../../ui';
+
 // ============================================================================
 // 1. Modelos de Dominio de Datos
 // ============================================================================
@@ -216,6 +220,10 @@ export interface LoadedPluginInfo {
   readonly hasError: boolean;
   readonly errorCount: number;
   readonly lastError?: string;
+  /** Estado explícito del ciclo de vida en el host */
+  readonly state?: 'inactive' | 'loading' | 'active' | 'unloading' | 'failed';
+  /** Runtime que ejecuta el plugin */
+  readonly runtime?: 'modern' | 'legacy';
 }
 
 // ============================================================================
@@ -345,6 +353,12 @@ export interface StorageApi {
 export interface UiApi {
   getTheme(): 'dark' | 'light';
   onThemeChange(cb: (theme: string) => void): EventRef;
+  /** Biblioteca de componentes de IndexLy (`Button`, `Card`, `Modal`, …). */
+  readonly components: UiKit;
+  /** Monta un árbol React en un contenedor del host. */
+  mount(node: ReactNode, container: Element | string): Root;
+  /** Desmonta el árbol montado previamente en el contenedor. */
+  unmount(container: Element | string): void;
 }
 
 export interface LegacyApi {
@@ -436,10 +450,20 @@ export interface NativeApi {
     env(): Promise<Record<string, string>>;
     cwd(): Promise<string>;
   };
+  /** @deprecated Usa `http.request` para peticiones sin CORS. */
   net: {
     fetch(input: string | Request, init?: RequestInit): Promise<Response>;
     download(url: string, dest: string, onProgress?: (n: number) => void): Promise<void>;
     listen(port: number, cb: (req: unknown) => void): Promise<() => void>;
+  };
+  http: {
+    request(opts: {
+      method?: string;
+      url: string;
+      headers?: Record<string, string>;
+      body?: string;
+      timeoutMs?: number;
+    }): Promise<{ status: number; headers: Record<string, string>; body: string }>;
   };
   shell: {
     openPath(p: string): Promise<void>;

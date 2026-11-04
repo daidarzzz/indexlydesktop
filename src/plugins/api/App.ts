@@ -20,6 +20,7 @@ import { HostImporterApi } from './ImporterApi';
 import { createNativeApi } from './NativeApi';
 import { HostHubApi } from './HubApi';
 import { PluginHost } from '../host/PluginHost';
+import { ui as uiKit, mount as mountUi, unmount as unmountUi } from '../../ui';
 
 /**
  * Conjunto de características activadas en el host para detección dinámica.
@@ -89,6 +90,9 @@ export function createAppInstance(
     onThemeChange(cb) {
       return events.on('ui:theme_change', cb as (data: any) => void);
     },
+    components: uiKit,
+    mount: mountUi,
+    unmount: unmountUi,
   };
 
   const legacy: LegacyApi = {

@@ -22,54 +22,46 @@ Si una interfaz, clase o propiedad requiere ser sustituida por un diseño superi
 
 ---
 
-## 3. Verificación de Compatibilidad en CI con `@microsoft/api-extractor`
+## 3. Verificación de Compatibilidad (estado real del repositorio)
 
-El repositorio utiliza `@microsoft/api-extractor` para capturar la superficie pública de tipos en el archivo `api/indexly.api.md`.
+**No existe hoy `@microsoft/api-extractor` ni un pipeline de CI configurado.** El repositorio no contiene `.github/`, no hay un `api/indexly.api.md` generado y `package.json` no incluye la dependencia. La verificación real es:
 
 ```mermaid
 graph LR
-    Code["Código TypeScript"] --> Build["tsc (Declaraciones .d.ts)"]
-    Build --> Extractor["@microsoft/api-extractor"]
-    Extractor --> DiffCheck{"¿Diff con api/indexly.api.md?"}
-    DiffCheck -- "Incompatible / Eliminado" --> Fail["CI Falla (Bloqueo de PR)"]
-    DiffCheck -- "Aditivo / Compatible" --> Pass["CI Pasa con Éxito"]
+    Code["Código TypeScript"] --> TSC["npm run build (tsc + vite)"]
+    TSC --> Snapshot["src/plugins/__tests__/ApiSnapshot.test.ts"]
+    Snapshot --> Tests["npm test (Vitest)"]
+    Tests -- "Fallo" --> Fail["El cambio no pasa la suite local"]
+    Tests -- "Éxito" --> Pass["Verificación manual antes de fusionar"]
 ```
 
-- Cada Pull Request ejecuta una comprobación contra el snapshot de referencia.
-- Si se detecta la modificación de una propiedad existente, la supresión de un método o una alteración de tipo que no sea estrictamente compatible hacia atrás, el flujo de integración continua **falla inmediatamente**.
+- `ApiSnapshot.test.ts` comprueba que las clases, errores y módulos públicos siguen exportándose.
+- `docs/plugin-api/golden-contract.api.md` es la referencia documental del contrato.
+- La comprobación **no bloquea Pull Requests automáticamente** porque no hay CI. Es una salvaguarda local que debe ejecutarse manualmente con `npm test`.
+- Si en el futuro se añade CI, el paso mínimo recomendado es `npm run build && npm test && cargo test --lib`.
 
 ---
 
-## 4. Suite de Conformidad `@indexly/plugin-test-kit`
+## 4. Harness de Pruebas Interno
 
-Para apoyar a los desarrolladores del ecosistema en la verificación rigurosa de sus extensiones, se distribuye el paquete `@indexly/plugin-test-kit`:
+No se publica actualmente un paquete `@indexly/plugin-test-kit`. El repositorio incluye utilidades internas de prueba en `src/plugins/__tests__/`:
 
-```ts
-import { testPlugin } from '@indexly/plugin-test-kit';
-import MiPlugin from './src/main';
+- `PluginHost.test.ts`: ciclo de vida, timeouts, hooks que lanzan y activaciones concurrentes.
+- `SafeCall.test.ts`: aislamiento de callbacks y propagación de errores críticos.
+- `SamplePlugins.test.ts`: carga de plugins de ejemplo reales desde disco.
+- `ApiSnapshot.test.ts`: superficie pública exportada.
 
-testPlugin({
-  pluginClass: MiPlugin,
-  manifestPath: './manifest.json',
-  leakTestCycles: 100,
-  timeoutThresholdMs: 500,
-});
-```
-
-El test-kit verifica automáticamente:
-1. Validez formal de `manifest.json` contra el esquema JSON v1.
-2. Ausencia de fugas de memoria en 100 ciclos de `onload()` / `onunload()`.
-3. Idempotencia y resolución de promesas dentro de los límites de tiempo (10s / 5s).
-4. Tipado estricto contra `indexly.d.ts`.
+Estas pruebas se ejecutan con `npm test` y no sustituyen a una suite de conformidad publicada.
 
 ---
 
 ## 5. Ejemplos Versionados de Referencia
 
-El repositorio incluye 3 plugins de prueba representativos mantenidos como suite de integración continua:
+El repositorio incluye plugins de ejemplo que la suite local carga desde disco:
 
-1. **`hello-command`:** Ejemplo mínimo en JavaScript / TypeScript plano que añade comandos y avisos de notificación.
-2. **`custom-view-react`:** Ejemplo avanzado que monta componentes interactivos de React 19 dentro de un `WorkspaceLeaf`.
-3. **`importer-csv`:** Extensión del motor de importación que procesa archivos CSV complejos mediante `app.importer`.
+1. **`hello-command`:** comandos y avisos de notificación.
+2. **`custom-view-react`:** vista interactiva montada en un `WorkspaceLeaf`.
+3. **`importer-csv`:** importación de CSV mediante `app.importer`.
+4. **`scratchpad-notes`:** persistencia, portapapeles y limpieza de vistas.
 
-Cualquier cambio propuesto en el código de IndexLy Desktop debe compilar y ejecutar estos tres plugins con éxito antes de ser fusionado.
+`SamplePlugins.test.ts` los ejecuta con Vitest. No hay un pipeline de CI que los ejecute automáticamente antes de fusionar.

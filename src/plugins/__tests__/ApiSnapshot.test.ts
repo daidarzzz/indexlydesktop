@@ -168,6 +168,9 @@ describe('Golden Contract API Snapshot (indexly v1)', () => {
     expect(typeof app.native.process.env).toBe('function');
     expect(typeof app.native.process.cwd).toBe('function');
 
+    expect(app.native.http).toBeDefined();
+    expect(typeof app.native.http.request).toBe('function');
+
     expect(app.native.db).toBeDefined();
     expect(typeof app.native.db.query).toBe('function');
     expect(typeof app.native.db.exec).toBe('function');

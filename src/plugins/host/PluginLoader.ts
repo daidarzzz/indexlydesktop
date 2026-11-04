@@ -4,6 +4,8 @@
  */
 
 import { App, PluginManifest, View, ItemView } from '../types';
+import * as React from 'react';
+import { ui, mount, unmount } from '../../ui';
 import { Plugin } from '../api/Plugin';
 import { Component } from '../api/Component';
 import { Modal, Notice, Setting, PluginSettingTab, Menu, SuggestModal, FuzzySuggestModal } from '../api/ui';
@@ -25,6 +27,11 @@ import {
 export function createIndexlyPublicPackage(app: App) {
   return {
     app,
+    React,
+    ui,
+    components: ui,
+    mount,
+    unmount,
     Plugin,
     Component,
     View,

@@ -1,0 +1,19 @@
+{
+  "id": "gamevault",
+  "name": "GameVault",
+  "version": "1.5.0",
+  "description": "Tu colección de juegos: busca en GameDB (datos de IGDB publicados por LizardByte con componentes React de Indexly), filtra tu catálogo en tiempo real con buscador interactivo, guarda juegos con carátulas y ficha completa, y asígnales fuentes de descarga desde tus propios índices.",
+  "permissions": [
+    "network",
+    "ui",
+    "storage"
+  ],
+  "capabilities": [],
+  "author": null,
+  "enabled": true,
+  "entry_ui": "index.js",
+  "entry_backend": null,
+  "settings": null,
+  "main": null,
+  "styles": null
+}

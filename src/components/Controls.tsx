@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { Slot } from '../plugins/Slot';
 import { pluginRegistry } from '../plugins/PluginRegistry';
-import { LayoutList, LayoutGrid } from 'lucide-react';
+import { LayoutList, LayoutGrid, ArrowUpDown, ChevronDown } from 'lucide-react';
 
 interface ControlsProps {
   filterLink: string | null;
@@ -12,6 +12,20 @@ interface ControlsProps {
   viewMode: 'list' | 'grid';
   onViewModeChange: (v: 'list' | 'grid') => void;
 }
+
+const FILTERS: Array<{ id: string | null; label: string }> = [
+  { id: null, label: 'Todos' },
+  { id: 'link', label: 'Con enlace' },
+  { id: 'nolink', label: 'Sin enlace' },
+];
+
+const SORTS = [
+  { id: 'relevance', label: 'Relevancia' },
+  { id: 'title-asc', label: 'Título (A-Z)' },
+  { id: 'title-desc', label: 'Título (Z-A)' },
+  { id: 'size-desc', label: 'Tamaño (mayor)' },
+  { id: 'size-asc', label: 'Tamaño (menor)' },
+];
 
 export const Controls: React.FC<ControlsProps> = ({
   filterLink,
@@ -29,93 +43,89 @@ export const Controls: React.FC<ControlsProps> = ({
 
   const registeredViews = pluginRegistry.getRegisteredViews();
   const activeCustomView = pluginRegistry.getActiveView();
+  const activeViewId = activeCustomView?.id ?? viewMode;
+
+  const views: Array<{ id: string; label: string; icon: React.ReactNode }> = [
+    { id: 'list', label: 'Lista', icon: <LayoutList size={14} /> },
+    { id: 'grid', label: 'Cuadrícula', icon: <LayoutGrid size={14} /> },
+    ...registeredViews.map((v) => ({
+      id: v.id,
+      label: v.label,
+      icon: v.icon ? (
+        <span className="ctl-view__svg" dangerouslySetInnerHTML={{ __html: v.icon }} />
+      ) : (
+        <span className="ctl-view__abbr">{v.label.slice(0, 2).toUpperCase()}</span>
+      ),
+    })),
+  ];
+
+  const selectView = (id: string) => {
+    if (id === 'list' || id === 'grid') {
+      pluginRegistry.setActiveView(null);
+      onViewModeChange(id);
+      return;
+    }
+    pluginRegistry.setActiveView(id);
+  };
 
   return (
-    <div className="controls">
-      <div className="filter-chips">
-        <button
-          type="button"
-          className={`chip ${filterLink === null ? 'active' : ''}`}
-          onClick={() => onFilterChange(null)}
-        >
-          Todos
-        </button>
-        <button
-          type="button"
-          className={`chip ${filterLink === 'link' ? 'active' : ''}`}
-          onClick={() => onFilterChange('link')}
-        >
-          Con enlace
-        </button>
-        <button
-          type="button"
-          className={`chip ${filterLink === 'nolink' ? 'active' : ''}`}
-          onClick={() => onFilterChange('nolink')}
-        >
-          Sin enlace
-        </button>
-        {/* Slot para que los plugins inyecten chips de filtro dinámicos */}
+    <div className="ctl-bar">
+      {/* Filtros (+ chips que añadan los plugins) */}
+      <div className="ctl-group ctl-filters filter-chips" role="group" aria-label="Filtrar resultados">
+        {FILTERS.map((f) => (
+          <button
+            key={f.label}
+            type="button"
+            className={`chip ctl-chip ${filterLink === f.id ? 'active' : ''}`}
+            aria-pressed={filterLink === f.id}
+            onClick={() => onFilterChange(f.id)}
+          >
+            {f.label}
+          </button>
+        ))}
         <Slot name="search_chips" />
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <div className="ctl-end">
         <Slot name="controls_extra" />
 
-        <select
-          className="sort-select"
-          value={sortBy}
-          onChange={(e) => onSortChange(e.target.value)}
-          title="Ordenar resultados"
-        >
-          <option value="relevance">Relevancia</option>
-          <option value="title-asc">Título (A-Z)</option>
-          <option value="title-desc">Título (Z-A)</option>
-          <option value="size-desc">Tamaño (mayor)</option>
-          <option value="size-asc">Tamaño (menor)</option>
-        </select>
-
-        <div className="view-toggle">
-          <button
-            type="button"
-            className={`chip view-btn ${viewMode === 'list' && !activeCustomView ? 'active' : ''}`}
-            data-view="list"
-            onClick={() => {
-              pluginRegistry.setActiveView(null);
-              onViewModeChange('list');
-            }}
-            title="Vista lista compacta"
+        {/* Ordenación: select nativo con aspecto de píldora */}
+        <label className="ctl-group ctl-sort" title="Ordenar resultados">
+          <ArrowUpDown size={13} aria-hidden="true" />
+          <select
+            className="ctl-sort__select"
+            value={sortBy}
+            onChange={(e) => onSortChange(e.target.value)}
+            aria-label="Ordenar resultados"
           >
-            <LayoutList size={13} />
-          </button>
-          <button
-            type="button"
-            className={`chip view-btn ${viewMode === 'grid' && !activeCustomView ? 'active' : ''}`}
-            data-view="grid"
-            onClick={() => {
-              pluginRegistry.setActiveView(null);
-              onViewModeChange('grid');
-            }}
-            title="Vista cuadrícula con portadas"
-          >
-            <LayoutGrid size={13} />
-          </button>
+            {SORTS.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+          <ChevronDown size={12} className="ctl-sort__chevron" aria-hidden="true" />
+        </label>
 
-          {registeredViews.map((v) => (
-            <button
-              key={v.id}
-              type="button"
-              className={`chip view-btn plx-view-btn ${activeCustomView?.id === v.id ? 'active' : ''}`}
-              onClick={() => pluginRegistry.setActiveView(v.id)}
-              title={v.label}
-            >
-              {v.icon ? (
-                <span dangerouslySetInnerHTML={{ __html: v.icon }} />
-              ) : (
-                <span style={{ fontSize: '11px', fontWeight: 600 }}>{v.label.slice(0, 3).toUpperCase()}</span>
-              )}
-            </button>
-          ))}
-
+        {/* Vista: sólo iconos, con su nombre como tooltip */}
+        <div className="ctl-group ctl-views view-toggle" role="radiogroup" aria-label="Modo de vista de resultados">
+          {views.map((v) => {
+            const active = activeViewId === v.id;
+            return (
+              <button
+                key={v.id}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                aria-label={v.label}
+                title={v.label}
+                className={`ctl-view ${active ? 'active' : ''}`}
+                onClick={() => selectView(v.id)}
+              >
+                {v.icon}
+              </button>
+            );
+          })}
           <Slot name="view_modes" />
         </div>
       </div>

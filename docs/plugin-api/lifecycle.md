@@ -14,11 +14,14 @@ stateDiagram-v2
     Loading --> Active: onload() completa con éxito (<10s)
     Loading --> Failed: Excepción o Timeout en onload() (Invalidación de generationId)
     Active --> Unloading: Desactivación, recarga o cierre
-    Unloading --> Inactive: onunload() completa con éxito (<5s) y purga LIFO
-    Unloading --> Failed: Timeout en onunload() (Purga forzosa)
+    Unloading --> Inactive: onunload() completa o timeout (purga forzosa LIFO)
     Failed --> Inactive: Reintento manual / Reinicio
     Inactive --> [*]: Desinstalación y borrado de directorio
 ```
+
+`PluginHost` serializa las operaciones de un mismo plugin (`enable`, `disable`, `reload`)
+para que dos activaciones concurrentes no creen dos instancias ni dupliquen listeners.
+Plugins distintos pueden cargarse en paralelo.
 
 ---
 
@@ -34,17 +37,12 @@ Por tanto, el `PluginHost` adopta un enfoque realista:
    - `onunload()`: 5 segundos.
 
 ### 2.2 Token de Generación (`generationId`)
-Para evitar que un plugin cuyo `onload()` sufrió un timeout intente mutar el host cuando finalmente resuelve tarde (problema del plugin zombi):
+Para evitar que un plugin cuyo `onload()` sufrió un timeout quede marcado como cargado o deje recursos huérfanos cuando finalmente resuelve tarde (problema del plugin zombi):
 1. Cada ciclo de carga genera un número de versión `generationId` monótonamente creciente en el host.
 2. La instancia del plugin recibe este `generationId`.
-3. Todos los métodos de registro (`addCommand`, `registerView`, `registerEvent`, etc.) verifican:
-   ```ts
-   if (this._generationId !== host.getActiveGenerationId(this.manifest.id)) {
-     console.warn(`[PluginHost] Intento de registro descartado: generationId obsoleto para ${this.manifest.id}`);
-     return; // Descarte silencioso sin mutación de estado
-   }
-   ```
-4. Al dispararse un timeout o al iniciar la descarga, el `generationId` del plugin se invalida de inmediato. Cualquier llamada posterior queda desarmada.
+3. Al completar `onload()`, el host comprueba `generationManager.isValid(id, generationId)`. Si fue invalidado (timeout, descarga o recarga), limpia la instancia y no la marca como activa.
+4. Al dispararse un timeout o al iniciar la descarga, el `generationId` se invalida de inmediato. Si el `onload()` tardío termina después, el host ejecuta una segunda limpieza idempotente de los recursos que haya registrado.
+5. **Limitación actual:** las APIs de registro (`addCommand`, `registerView`, etc.) no comprueban el `generationId` en cada llamada. La protección es de ciclo de vida (no marcar activo y limpiar tarde), no un filtro por llamada.
 
 ---
 
@@ -61,22 +59,16 @@ Cuando se produce un error no capturado en la aplicación, el host lo atribuye a
 
 ---
 
-## 4. Test de Fugas con Instrumentación de Harness (`@indexly/plugin-test-kit`)
+## 4. Verificación de Fugas en la Suite Local
 
-Para verificar de forma infalible la ausencia de fugas tras 100 ciclos de activación/desactivación, el harness instrumenta los puntos críticos del runtime:
+**No existe un paquete publicado `@indexly/plugin-test-kit` ni un harness con `WeakRef`/`FinalizationRegistry`.** La verificación real se apoya en pruebas de Vitest con `jsdom`:
 
-```mermaid
-graph TD
-    Harness["Test Harness (@indexly/plugin-test-kit)"] --> MonkeyDOM["Monkey-Patch EventTarget (Track Listeners)"]
-    Harness --> MonkeyTimer["Spy Timers (setInterval, setTimeout, rAF)"]
-    Harness --> MonkeyIPC["Spy Tauri IPC (listen / unlisten pairs)"]
-    Harness --> WeakCheck["WeakRef & FinalizationRegistry (GC Validation)"]
-    Harness --> DOMTree["MutationObserver & Head Style Cleanliness"]
-```
+- `src/plugins/__tests__/PluginHost.test.ts`: comprueba que, tras `disablePlugin()`, se eliminan comandos y elementos de ribbon registrados, y que los estilos `<style data-plugin-id="...">` se retiran.
+- `src/plugins/__tests__/SamplePlugins.test.ts`: ejecuta plugins reales y verifica su limpieza tras `onunload()`.
+- `Component.unload()` ejecuta los disposables en orden LIFO y es idempotente.
 
-### Protocolo de Validación:
-1. **EventTarget Tracking:** Se interceptan `addEventListener` y `removeEventListener` registrando las referencias en un `Map<EventTarget, Set<{ type, listener, pluginId }>>`. Al finalizar el ciclo `onunload()`, el conjunto debe estar vacío.
-2. **Timer Tracking:** Se contabilizan los IDs de `setInterval` y `setTimeout`. Ningún temporizador registrado por el plugin debe continuar activo tras `onunload()`.
-3. **Tauri IPC Listeners:** Se verifica que todas las funciones de desuscripción devueltas por `@tauri-apps/api/event.listen` hayan sido invocadas.
-4. **Limpieza del DOM:** Se comprueba que ningún elemento HTML huérfano ni etiqueta `<style data-plugin-id="...">` permanezca en el documento.
-5. **Retención de Instancia (GC Check):** La instancia de la clase `Plugin` se envuelve en un `WeakRef`. Tras la descarga y la llamada forzada a `global.gc()`, el harness comprueba que el recolector de basura haya reclamado la instancia, demostrando que el host no retiene closures indebidas.
+### Protocolo real (limitado)
+1. **Comandos y DOM:** se consulta `sharedCommands.listCommands()` y el DOM tras la descarga.
+2. **Estilos:** se verifica la ausencia de etiquetas `<style>` asociadas al plugin.
+3. **Eventos:** `HostEventsApi.purgePlugin(id)` elimina los listeners del plugin.
+4. **No verificado hoy:** recolección de basura real, listeners DOM añadidos manualmente por el plugin fuera de `Component`, y pares `listen/unlisten` de Tauri. Son áreas de mejora, no garantías existentes.

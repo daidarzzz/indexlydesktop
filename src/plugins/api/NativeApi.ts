@@ -286,6 +286,37 @@ export function createNativeApi(): NativeApi {
     },
   };
 
+  // 4b. HTTP proxy nativo (sin CORS). Recomendado para servicios locales
+  // (qBittorrent, Transmission, Jellyfin…) a los que el webview no puede llamar.
+  const http = {
+    async request(options: {
+      method?: string;
+      url: string;
+      headers?: Record<string, string>;
+      body?: string;
+      timeoutMs?: number;
+    }): Promise<{ status: number; headers: Record<string, string>; body: string }> {
+      try {
+        return await invoke<{ status: number; headers: Record<string, string>; body: string }>(
+          'plugin:http_request',
+          {
+            method: options.method || 'GET',
+            url: options.url,
+            headers: options.headers,
+            body: options.body,
+            timeoutMs: options.timeoutMs,
+          }
+        );
+      } catch (err: any) {
+        throw new NativeError(
+          `Error en petición HTTP a '${options.url}': ${err.message || err}`,
+          'ERR_HTTP_REQUEST',
+          err
+        );
+      }
+    },
+  };
+
   // 5. Shell
   const shell = {
     async openPath(_p: string): Promise<void> {},
@@ -480,6 +511,7 @@ export function createNativeApi(): NativeApi {
     path,
     process,
     net,
+    http,
     shell,
     clipboard,
     notifications,

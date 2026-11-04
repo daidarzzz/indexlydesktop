@@ -93,6 +93,12 @@ export interface PluginManifest {
   entry_ui?: string | null;
   entry_backend?: string | null;
   settings?: PluginSettingSchema[] | null;
+  /** Versión del esquema de manifiesto v1. Ausente en extensiones legacy. */
+  schemaVersion?: number;
+  /** Versión mínima del host declarada por el plugin. */
+  minHostVersion?: string;
+  /** Permisos nuevos pendientes de consentimiento explícito tras una actualización. */
+  pendingPermissions?: string[];
 }
 
 export interface DynamicWindowConfig {

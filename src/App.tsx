@@ -1,7 +1,8 @@
 // src/App.tsx — Aplicación principal IndexLy Desktop
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Search, BookOpen } from 'lucide-react';
+import { Search, BookOpen, ArrowLeft } from 'lucide-react';
+import { Button } from './ui';
 import { Header } from './components/Header';
 import { SourceManager } from './components/SourceManager';
 import { SearchBar } from './components/SearchBar';
@@ -16,22 +17,21 @@ import { WorkspaceLeaf } from './plugins/types';
 import { pluginRegistry, SectionDefinition } from './plugins/PluginRegistry';
 import { LoadedPlugin, SearchResult, Source, ToastItem } from './types';
 
-export function App() {
-  const isSpotlightWindow = typeof window !== 'undefined' && window.location.search.includes('window=spotlight');
+const VIEW_MODE_KEY = 'indexly_view_mode';
 
+
+/**
+ * Aplicación principal: monta búsqueda, fuentes, plugins y workspace.
+ * No se renderiza en la ventana Spotlight, de modo que esa ventana no
+ * inicializa el runtime de plugins ni consulta el catálogo.
+ */
+function MainApp() {
   const [sources, setSources] = useState<Source[]>([]);
   const [plugins, setPlugins] = useState<LoadedPlugin[]>([]);
   const [isPluginModalOpen, setIsPluginModalOpen] = useState(false);
   const [isHubModalOpen, setIsHubModalOpen] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [workspaceLeaves, setWorkspaceLeaves] = useState<WorkspaceLeaf[]>([]);
-
-  useEffect(() => {
-    if (isSpotlightWindow) {
-      document.documentElement.classList.add('spotlight-window');
-      document.body.classList.add('spotlight-window');
-    }
-  }, [isSpotlightWindow]);
 
   // Secciones registradas por plugins (p. ej. ReadLy)
   const [sections, setSections] = useState<SectionDefinition[]>([]);
@@ -51,7 +51,22 @@ export function App() {
   const [query, setQuery] = useState('');
   const [filterLink, setFilterLink] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState('relevance');
-  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
+  // La vista elegida (lista / cuadrícula) se recuerda entre sesiones
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>(() => {
+    try {
+      return localStorage.getItem(VIEW_MODE_KEY) === 'grid' ? 'grid' : 'list';
+    } catch {
+      return 'list';
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(VIEW_MODE_KEY, viewMode);
+    } catch {
+      /* almacenamiento no disponible: se usa la vista por defecto */
+    }
+  }, [viewMode]);
 
   // Resultados de búsqueda
   const [searchResult, setSearchResult] = useState<SearchResult>({
@@ -64,6 +79,8 @@ export function App() {
 
   const [limit] = useState(50);
   const [offset, setOffset] = useState(0);
+  // Sólo true hasta que llega la primera respuesta (evita parpadeos al teclear)
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
 
   // Toasts
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -153,14 +170,6 @@ export function App() {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       // 1. Interceptar Ctrl+P o Cmd+P para la Paleta de Comandos (previene impresión nativa del navegador)
       if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'p')) {
-        e.preventDefault();
-        e.stopPropagation();
-        setIsCommandPaletteOpen((prev) => !prev);
-        return;
-      }
-
-      // 2. Interceptar Ctrl+K como atajo alternativo estándar
-      if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'k')) {
         e.preventDefault();
         e.stopPropagation();
         setIsCommandPaletteOpen((prev) => !prev);
@@ -299,11 +308,13 @@ export function App() {
         } else {
           setSearchResult(res);
         }
+        setHasLoadedOnce(true);
       } catch (err: any) {
         if (err?.name === 'AbortError' || signal?.aborted) {
           return;
         }
         console.error('Error en búsqueda:', err);
+        setHasLoadedOnce(true);
       }
     },
     [limit]
@@ -461,9 +472,27 @@ export function App() {
     executeSearch(query, filterLink, sortBy, nextOffset, true);
   };
 
-  if (isSpotlightWindow) {
-    return <div id="spotlight-window-root" style={{ width: '100%', height: '100%' }} />;
-  }
+  // Pestañas de plugins: secciones legacy + vistas del workspace (deduplicadas por viewType)
+  const pluginTabs: Array<{ id: string; label: string; onSelect: () => void }> = [
+    ...sections.map((sec) => ({
+      id: sec.id,
+      label: sec.label,
+      onSelect: () => setActiveSectionId(sec.id),
+    })),
+    ...Array.from(
+      new Map(workspaceLeaves.filter((l) => l.view).map((l) => [l.view!.getViewType(), l])).values()
+    ).map((leaf) => {
+      const viewType = leaf.view!.getViewType();
+      return {
+        id: viewType,
+        label: leaf.view!.getDisplayText() || 'Vista',
+        onSelect: () => {
+          setActiveSectionId(viewType);
+          pluginHost.sharedWorkspace.revealLeaf(leaf);
+        },
+      };
+    }),
+  ];
 
   return (
     <div className="App">
@@ -472,69 +501,58 @@ export function App() {
         pluginsCount={plugins.filter((p) => p.manifest.enabled).length}
         hubToken={hubToken}
         onOpenHubModal={() => setIsHubModalOpen(true)}
-        onOpenDocs={() => setActiveSectionId((curr) => (curr === '__docs__' ? null : '__docs__'))}
-        isDocsActive={activeSectionId === '__docs__'}
+        onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
       />
 
       <main className={`Search ${activeSectionId ? 'section-open' : ''}`}>
-        {/* Tabbar de secciones principales y plugins */}
-        <div id="plugin-tabbar" className="plugin-tabbar" role="group" aria-label="Navegación principal">
-          <button
-            type="button"
-            className={`plx-tab ${!activeSectionId ? 'active' : ''}`}
-            aria-pressed={!activeSectionId}
-            onClick={() => setActiveSectionId(null)}
-          >
-            <Search size={13} style={{ marginRight: '6px', verticalAlign: '-1px' }} />
-            <span>Buscador</span>
-          </button>
-
-          <button
-            type="button"
-            className={`plx-tab ${activeSectionId === '__docs__' ? 'active' : ''}`}
-            aria-pressed={activeSectionId === '__docs__'}
-            onClick={() => setActiveSectionId('__docs__')}
-          >
-            <BookOpen size={13} style={{ marginRight: '6px', verticalAlign: '-1px' }} />
-            <span>Documentación</span>
-          </button>
-
-          {sections.map((sec) => (
+        {/* Barra de navegación: Buscador / Documentación y, tras un separador, las
+            secciones y vistas de plugins. Mantiene #plugin-tabbar y .plx-tab por
+            compatibilidad con plugins que los usan. */}
+        <div id="plugin-tabbar" className="plugin-tabbar">
+          <div className="app-tabs" role="tablist" aria-label="Navegación principal">
             <button
-              key={sec.id}
               type="button"
-              className={`plx-tab ${activeSectionId === sec.id ? 'active' : ''}`}
-              aria-pressed={activeSectionId === sec.id}
-              onClick={() => setActiveSectionId(sec.id)}
+              role="tab"
+              className={`plx-tab app-tab ${!activeSectionId ? 'active' : ''}`}
+              aria-selected={!activeSectionId}
+              onClick={() => setActiveSectionId(null)}
             >
-              {sec.label}
+              <Search size={13} aria-hidden="true" />
+              <span>Buscador</span>
             </button>
-          ))}
 
-          {/* Vistas y hojas del espacio de trabajo moderno (Plugin API v1, deduplicadas por viewType) */}
-          {Array.from(
-            new Map(workspaceLeaves.filter((l) => l.view).map((l) => [l.view!.getViewType(), l])).values()
-          ).map((leaf) => {
-            const viewType = leaf.view!.getViewType();
-            const displayText = leaf.view!.getDisplayText() || 'Vista';
-            const isActive = activeSectionId === viewType;
-            return (
-              <button
-                key={viewType}
-                type="button"
-                className={`plx-tab ${isActive ? 'active' : ''}`}
-                aria-pressed={isActive}
-                onClick={() => {
-                  setActiveSectionId(viewType);
-                  pluginHost.sharedWorkspace.revealLeaf(leaf);
-                }}
-              >
-                <span>{displayText}</span>
-              </button>
-            );
-          })}
+            <button
+              type="button"
+              role="tab"
+              className={`plx-tab app-tab ${activeSectionId === '__docs__' ? 'active' : ''}`}
+              aria-selected={activeSectionId === '__docs__'}
+              onClick={() => setActiveSectionId('__docs__')}
+            >
+              <BookOpen size={13} aria-hidden="true" />
+              <span>Documentación</span>
+            </button>
 
-          <div style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+            {pluginTabs.length > 0 && <span className="app-tabs__divider" aria-hidden="true" />}
+
+            {pluginTabs.map((tab) => {
+              const isActive = activeSectionId === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  className={`plx-tab app-tab app-tab--plugin ${isActive ? 'active' : ''}`}
+                  aria-selected={isActive}
+                  onClick={tab.onSelect}
+                  title={tab.label}
+                >
+                  <span className="app-tab__label">{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="plugin-tabbar__end">
             <div className="indexly-ribbon-bar" id="indexly-ribbon-bar" />
           </div>
         </div>
@@ -567,9 +585,14 @@ export function App() {
           aria-live="polite"
         >
           <div className="plx-section-head">
-            <button type="button" className="plx-btn plx-btn-sec" onClick={() => setActiveSectionId(null)}>
-              ← Volver a la búsqueda
-            </button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setActiveSectionId(null)}
+              iconLeft={<ArrowLeft size={13} />}
+            >
+              Volver a la búsqueda
+            </Button>
           </div>
           <div ref={sectionBodyRef} className="plx-section-body" />
         </div>
@@ -594,6 +617,7 @@ export function App() {
           viewMode={viewMode}
           onLoadMore={handleLoadMore}
           hasMore={searchResult.items.length < searchResult.total}
+          isLoading={!hasLoadedOnce}
         />
       </main>
 
@@ -670,6 +694,55 @@ export function App() {
       />
     </div>
   );
+}
+
+/**
+ * Ventana Spotlight: deliberadamente mínima. No monta `MainApp`; sólo carga
+ * las fuentes (para `getIndexes`) y el propio plugin `spotlight`, que es quien
+ * pinta la paleta dentro de `#spotlight-window-root`.
+ */
+function SpotlightWindow() {
+  useEffect(() => {
+    document.documentElement.classList.add('spotlight-window');
+    document.body.classList.add('spotlight-window');
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const [list, sources] = await Promise.all([
+          invoke<LoadedPlugin[]>('get_plugins'),
+          invoke<Source[]>('get_sources').catch(() => [] as Source[]),
+        ]);
+        if (cancelled) return;
+        pluginRegistry.setSources(sources);
+        const spotlight = list.filter((p) => p.manifest.id === 'spotlight' && p.manifest.enabled);
+        if (!spotlight.length) {
+          console.warn('[Spotlight] El plugin "spotlight" no está instalado o está desactivado.');
+          return;
+        }
+        await pluginRegistry.loadPlugins(spotlight);
+      } catch (err) {
+        console.error('[Spotlight] No se pudo cargar el plugin en la ventana flotante:', err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return <div id="spotlight-window-root" style={{ width: '100%', height: '100%' }} />;
+}
+
+/**
+ * Selector de ventana. El montaje de `MainApp` es lo que activa la
+ * inicialización de plugins; en Spotlight ese árbol nunca se monta.
+ */
+export function App() {
+  const isSpotlightWindow =
+    typeof window !== 'undefined' && window.location.search.includes('window=spotlight');
+
+  return isSpotlightWindow ? <SpotlightWindow /> : <MainApp />;
 }
 
 export default App;

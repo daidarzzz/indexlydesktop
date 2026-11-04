@@ -2,44 +2,73 @@
 
 Este documento define la postura oficial de seguridad para el ecosistema de plugins de IndexLy Desktop.
 
+> **Nota de honestidad documental:** aquí se describe lo que el código implementa hoy. Las capacidades que no existen se marcan como tales.
+
 ---
 
 ## 1. Realismo Técnico vs Ilusión de Seguridad
 
-En aplicaciones de escritorio avanzadas que permiten a los usuarios ampliar sus capacidades con código de terceros (como Obsidian, Raycast, VS Code o NeoVim), aislar extensiones en cajas de arena impenetrables (sandboxes de navegador o procesos completamente aislados) resulta incompatible con la necesidad de acceder al sistema de archivos local, ejecutar binarios nativos, indexar bases de datos masivas y ofrecer una experiencia de usuario fluida sin latencia IPC interproceso.
+En aplicaciones de escritorio que permiten ampliar capacidades con código de terceros (Obsidian, Raycast, VS Code, NeoVim), aislar extensiones en cajas de arena impenetrables resulta incompatible con el acceso al sistema de archivos, la ejecución de binarios nativos y la indexación local sin latencia IPC.
 
 **Nuestra postura es transparente:**
-- **Ejecución in-process:** Los plugins se ejecutan en el mismo contexto de aplicación que el host.
-- **Sin permisos de bloqueo ficticios:** No fingimos contar con un cortafuegos interno que impida a un plugin malicioso acceder a la memoria si se ejecuta en el mismo proceso. Los sistemas que simulan permisos restrictivos sin aislamiento a nivel de hardware o proceso generan una peligrosa falsa sensación de seguridad.
+
+- **Ejecución in-process:** los plugins se ejecutan en el mismo contexto de aplicación que el host, con acceso a `window`, `document` y a las APIs expuestas.
+- **Sin sandbox real:** no hay proceso separado, `Worker`, iframe aislado ni filtro de llamadas por plugin.
+- **Sin permisos de bloqueo ficticios:** el campo `permissions` es informativo. No impide a un plugin leer archivos, ejecutar procesos o acceder a la red. No existe un cortafuegos interno por permiso.
+- **Consecuencia:** instalar y activar un plugin equivale a ejecutar código de terceros con los privilegios de la aplicación.
 
 ---
 
-## 2. Los Cuatro Pilares de Seguridad de IndexLy
+## 2. Los Cuatro Pilares (con su alcance real)
 
 ```mermaid
 graph TD
-    P1["1. Transparencia y Consentimiento (Permisos Declarativos)"]
-    P2["2. Control Absoluto del Usuario (Modo Restringido & Opt-In)"]
-    P3["3. Resiliencia y Aislamiento por Referencias Internas"]
-    P4["4. Verificación Comunitaria y Hub (Auditoría Estática de Código)"]
+    P1["1. Transparencia y Consentimiento (permisos declarativos)"]
+    P2["2. Control del Usuario (Modo Restringido & Modo Seguro)"]
+    P3["3. Resiliencia del Host (timeouts, aislamiento de errores, generación)"]
+    P4["4. Distribución (Hub sin verificación criptográfica todavía)"]
 ```
 
 ### 2.1 Transparencia y Consentimiento Informado
-- El campo `permissions` en `manifest.json` no es un mecanismo de bloqueo en runtime; es una declaración jurada del desarrollador para informar al usuario antes de la instalación.
-- La interfaz de instalación muestra en lenguaje claro el significado de cada permiso (`fs:read` = "Leer archivos locales", `process:spawn` = "Ejecutar programas", `db:write` = "Modificar la base de datos local").
-- Si una actualización introduce nuevos permisos, se solicita confirmación explícita al usuario antes de aplicarla.
 
-### 2.2 Control Absoluto del Usuario
-- **Activación Explícita:** Ningún plugin se activa automáticamente al instalarse o actualizarse.
-- **Modo Restringido (Restricted Mode):** Interruptor global que apaga de inmediato la ejecución de cualquier código de terceros. Permite arrancar la app en un estado 100% oficial para descartar problemas o depurar.
-- **Recuperación Automática de Arranque (Safe Mode):** Si IndexLy detecta que la aplicación no pudo iniciar limpiamente en 2 intentos consecutivos, arranca de forma forzosa en Modo Restringido.
+- El campo `permissions` en `manifest.json` **no es un mecanismo de bloqueo en runtime**; es una declaración del desarrollador para informar antes de instalar.
+- La interfaz de instalación y el gestor de plugins muestran los permisos declarados. `PluginModal` incluye además un aviso explícito de que los permisos no constituyen un sandbox.
+- **Instalaciones nuevas:** `PluginManager::install_plugin` fuerza `enabled = false`. El plugin no se ejecuta hasta que el usuario lo activa.
+- **Actualizaciones:** se conserva el estado `enabled` previo. Si la nueva versión declara permisos que no estaban en la anterior:
+  - el plugin se desactiva (`enabled = false`), y
+  - los permisos añadidos se guardan en `pendingPermissions`.
+- **Activación explícita:** al activar el plugin, `toggle_plugin` limpia `pendingPermissions`. Ese clic del usuario es el consentimiento registrado.
+- Los permisos son declarativos: un plugin puede solicitar `fs:read` y seguir usando cualquier otra API disponible. La lista sirve para transparencia y para forzar una revisión, no para limitar llamadas.
 
-### 2.3 Resiliencia y Aislamiento por Referencias Internas
-- **Sin `Object.freeze`:** Se prescinde de `Object.freeze` por su penalización en V8 y fragilidad. El kernel del host gestiona sus registros, comandos y despachos mediante colecciones privadas (`#privateMaps`) inaccesibles para el plugin.
-- **Token de Generación:** Cada activación invalida las llamadas asíncronas tardías de instancias anteriores, impidiendo mutaciones zombis.
-- **Envoltura `safeCall`:** Cada callback de plugin está envuelto en `safeCall()`. Un error o excepción no capturada en un plugin nunca destruye el hilo de la interfaz ni cuelga el host.
-- **Límites de tiempo asíncronos:** Límites de tiempo (`onload` 10s, `onunload` 5s) impiden que un plugin mantenga congelado el arranque o cierre del programa.
+### 2.2 Control del Usuario
 
-### 2.4 Auditoría, Integridad y Hub Abierto
-- **Integridad Verificable:** Cada manifiesto incluye `hash` (SHA-256 de `main.js`), `signature` (Ed25519) y `sourceCommit` (enlace al commit público auditado).
-- **Escaneo Estático Automatizado:** El Hub analiza el código fuente en búsqueda de patrones peligrosos (ofuscación excesiva, llamadas dinámicas a URLs no auditadas o intentos de manipulación de credenciales).
+- **Activación Explícita:** ningún plugin nuevo arranca activo. Las actualizaciones sin permisos nuevos mantienen el estado anterior para no interrumpir al usuario.
+- **Modo Restringido (Restricted Mode):** interruptor global; `PluginHost.enablePlugin()` rechaza cargas mientras esté activo.
+- **Modo Seguro (Safe Mode):** si la app detecta cierres sucios consecutivos, arranca en modo restringido. La lógica vive en `src/plugins/host/SafeMode.ts` y se evalúa al construir el host.
+
+### 2.3 Resiliencia del Host
+
+- **Estados y serialización:** `PluginHost` usa estados explícitos (`inactive`, `loading`, `active`, `unloading`, `failed`) y serializa las operaciones de un mismo plugin para evitar dobles instancias y listeners duplicados.
+- **`safeCall` vs `safeCallCritical`:**
+  - `safeCall()` aísla callbacks ordinarios: registra el error y devuelve `undefined`.
+  - `safeCallCritical()` se usa en `onload`/`onunload`: registra el error **y lo relanza** para que la activación se marque como `failed` y se limpien los recursos parciales.
+- **Token de generación:** cada activación recibe un `generationId`. Si `onload()` termina después de un timeout o de una descarga, el host detecta la invalidación, no marca el plugin como activo y ejecuta una limpieza adicional idempotente.
+  - **Limitación:** las APIs de registro no comprueban el `generationId` en cada llamada. La protección es de ciclo de vida, no un filtro por operación.
+- **Timeouts:** `onload` 10 s y `onunload` 5 s. Un `onunload` que excede el límite provoca purga forzosa LIFO; no se espera indefinidamente.
+- **Colecciones privadas:** el host usa campos `private` de TypeScript y `Map`s internos. **No** usa campos `#private` de JavaScript, por lo que un plugin decidido puede inspeccionarlos en runtime. Esto es aislamiento de diseño, no una frontera de seguridad.
+- **Sin `Object.freeze`:** se evita por coste en V8 y fragilidad; no se presenta como mecanismo de seguridad.
+
+### 2.4 Distribución e Integridad
+
+- Los manifiestos admiten `hash`, `signature` y `sourceCommit`, pero **el host no verifica firmas ni hashes** al instalar desde el Hub. Son metadatos, no una garantía criptográfica.
+- **No existe hoy un escáner estático automatizado** en el Hub ni en la app. La revisión de código es manual/comunitaria.
+- La instalación desde el Hub descarga el paquete y lo entrega a `PluginManager`; no hay paso de auditoría automática.
+
+---
+
+## 3. Recomendaciones para el Usuario
+
+1. Instala plugins de fuentes que puedas auditar.
+2. Revisa los permisos declarados, sabiendo que son informativos.
+3. Mantén el Modo Restringido activo si no necesitas extensiones.
+4. Trata cualquier plugin como código con los mismos privilegios que IndexLy Desktop.

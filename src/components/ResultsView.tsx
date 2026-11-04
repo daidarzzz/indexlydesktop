@@ -1,11 +1,13 @@
 // src/components/ResultsView.tsx — Renderizado de resultados (Lista y Cuadrícula con slots)
 import React, { useEffect, useState } from 'react';
 import { UnifiedItem } from '../types';
-import { Slot } from '../plugins/Slot';
+import { CardActionsMenu } from './CardActionsMenu';
 import { pluginRegistry } from '../plugins/PluginRegistry';
-import { ExternalLink, SearchX, FolderOpen } from 'lucide-react';
+import { ExternalLink, Magnet, SearchX } from 'lucide-react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { invoke } from '@tauri-apps/api/core';
+import { IndexlyLogo } from './IndexlyLogo';
+import { Button, EmptyState, Skeleton } from '../ui';
 
 interface ResultsViewProps {
   items: UnifiedItem[];
@@ -16,14 +18,21 @@ interface ResultsViewProps {
   viewMode: 'list' | 'grid';
   onLoadMore?: () => void;
   hasMore?: boolean;
+  /** Primera carga en curso: muestra un esqueleto en lugar del estado vacío. */
+  isLoading?: boolean;
+}
+
+/** Tono (0-359) estable derivado del texto; da a cada elemento/fuente su color. */
+function getHue(text: string) {
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) {
+    hash = text.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return Math.abs(hash % 360);
 }
 
 function getCardGradient(title: string) {
-  let hash = 0;
-  for (let i = 0; i < title.length; i++) {
-    hash = title.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const h1 = Math.abs(hash % 360);
+  const h1 = getHue(title);
   const h2 = (h1 + 40) % 360;
   return `linear-gradient(135deg, hsl(${h1}, 70%, 25%), hsl(${h2}, 80%, 15%))`;
 }
@@ -37,6 +46,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
   viewMode,
   onLoadMore,
   hasMore,
+  isLoading = false,
 }) => {
   const [, setTick] = useState(0);
 
@@ -46,36 +56,47 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
 
   const activeCustomView = pluginRegistry.getActiveView();
 
+  if (isLoading && items.length === 0) {
+    return (
+      <div className="results-skeleton" aria-busy="true" aria-label="Cargando resultados">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="results-skeleton__row">
+            <div className="results-skeleton__text">
+              <Skeleton width={`${60 - i * 12}%`} height={12} />
+              <Skeleton width="34%" height={10} />
+            </div>
+            <Skeleton shape="block" width={72} height={28} style={{ borderRadius: 999 }} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   if (activeSourcesCount === 0 && items.length === 0) {
     return (
-      <div className="empty-results-box" style={{ marginTop: '28px' }}>
-        <div className="empty-results-icon-wrap warning">
-          <FolderOpen size={24} className="empty-results-icon" />
-        </div>
-        <h3 className="empty-results-title">No hay fuentes activas</h3>
-        <p className="empty-results-desc">
-          Activa o añade al menos una fuente en el gestor superior para comenzar a buscar en tus índices.
-        </p>
-      </div>
+      <EmptyState
+        style={{ marginTop: '36px' }}
+        icon={<IndexlyLogo size={30} style={{ borderRadius: '8px' }} />}
+        title="No hay fuentes activas"
+        description="Activa o añade al menos una fuente en el gestor superior para comenzar a buscar en tus índices."
+      />
     );
   }
 
   if (items.length === 0) {
     return (
-      <div className="empty-results-box" style={{ marginTop: '28px' }}>
-        <div className="empty-results-icon-wrap">
-          <SearchX size={26} className="empty-results-icon" />
-        </div>
-        <h3 className="empty-results-title">Sin resultados</h3>
-        <p className="empty-results-desc">
-          No se encontraron coincidencias para tu búsqueda.
-        </p>
-        <div className="empty-results-hints">
-          <span className="hint-pill">Revisa la ortografía</span>
-          <span className="hint-pill">Prueba términos más generales</span>
-          <span className="hint-pill">Comprueba filtros activos</span>
-        </div>
-      </div>
+      <EmptyState
+        style={{ marginTop: '28px' }}
+        tone="warning"
+        icon={<SearchX size={26} />}
+        title="Sin resultados"
+        description="No se encontraron coincidencias para tu búsqueda."
+        hints={[
+          'Revisa la ortografía',
+          'Prueba términos más generales',
+          'Comprueba filtros activos',
+        ]}
+      />
     );
   }
 
@@ -122,87 +143,127 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
         <span className="stats-rust-badge">{tookMs.toFixed(1)} ms · Rust FTS5</span>
       </div>
 
-      <div id="results" className={`results-grid ${viewMode === 'grid' ? 'view-grid' : ''}`}>
+      <div id="results" className={`results-grid ${viewMode === 'grid' ? 'view-grid' : 'view-list'}`}>
         {items.map((item) => {
           const isMagnet = item.link?.startsWith('magnet:');
           const hasLink = Boolean(item.link && item.link.trim());
           const initial = item.title.charAt(0).toUpperCase();
 
           if (viewMode === 'grid') {
+            const hue = getHue(item.title);
+            const srcHue = getHue(item.source_name || '');
             return (
-              <div key={item.id} className="grid-card">
-                <div className="grid-cover" style={{ background: getCardGradient(item.title) }}>
-                  <div className="grid-cover__initial">{initial}</div>
-                  <div className="grid-cover__pill">{item.source_name}</div>
-                </div>
-
-                <div className="grid-body">
-                  <h3 className="grid-title" title={item.title}>
-                    {item.title}
-                  </h3>
-                  {item.subtitle && <p className="grid-subtitle">{item.subtitle}</p>}
-
-                  <div className="grid-badges">
-                    {item.file_size && <span className="meta-badge">{item.file_size}</span>}
+              <div
+                key={`grid-${item.id}`}
+                className={`tile ${hasLink ? 'has-link' : ''}`}
+                style={{ '--tile-hue': hue, '--src-hue': srcHue } as React.CSSProperties}
+                tabIndex={hasLink ? 0 : -1}
+                onDoubleClick={() => hasLink && handleOpenLink(item.link)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && hasLink && e.target === e.currentTarget) handleOpenLink(item.link);
+                }}
+              >
+                <div className="tile__head">
+                  <div className="tile__avatar" style={{ background: getCardGradient(item.title) }} aria-hidden="true">
+                    {initial}
+                  </div>
+                  <div className="tile__text">
+                    <h3 className="tile__title" title={item.title}>
+                      {item.title}
+                    </h3>
+                    {(item.subtitle || item.file_size) && (
+                      <p className="tile__sub">
+                        {item.subtitle && <span className="tile__subtitle" title={item.subtitle}>{item.subtitle}</span>}
+                        {item.file_size && <span className="tile__size">{item.file_size}</span>}
+                      </p>
+                    )}
                   </div>
                 </div>
 
-                <div className="grid-foot">
-                  {/* Slot para acciones inyectadas por plugins */}
-                  <Slot name="card_actions" context={item} />
+                <div className="tile__foot">
+                  <span className="tile__source" title={item.source_name}>
+                    <span className="tile__dot" aria-hidden="true" />
+                    <span className="tile__source-name">{item.source_name}</span>
+                  </span>
+
+                  {/* Acciones de plugins agrupadas en el menú "⋯" */}
+                  <CardActionsMenu item={item} />
 
                   {hasLink ? (
-                    <button
-                      type="button"
-                      className="grid-open"
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="tile__open result-row__open"
                       onClick={() => handleOpenLink(item.link)}
                       title={item.link || ''}
+                      aria-label={isMagnet ? `Abrir magnet de ${item.title}` : `Abrir ${item.title}`}
+                      iconRight={isMagnet ? <Magnet size={12} /> : <ExternalLink size={12} />}
                     >
-                      <span>{isMagnet ? 'Magnet' : 'Abrir'}</span>
-                      <ExternalLink size={11} />
-                    </button>
+                      {isMagnet ? 'Magnet' : 'Abrir'}
+                    </Button>
                   ) : (
-                    <span className="grid-no-link">Sin enlace</span>
+                    <span className="result-row__nolink">Sin enlace</span>
                   )}
                 </div>
               </div>
             );
           }
 
-          // Vista Lista
+          // Vista Lista: filas dentro de una única superficie, con avatar del mismo
+          // color que la cuadrícula para que ambas vistas se reconozcan entre sí.
           return (
-            <div key={item.id} className="game-card">
-              <div className="game-info-container">
-                <h3 title={item.title}>{item.title}</h3>
-                {item.subtitle && <p className="game-subtitle">{item.subtitle}</p>}
-                <div className="game-meta">
-                  <span className="source-badge">{item.source_name}</span>
-                  {item.file_size && (
-                    <>
-                      <span className="meta-sep">·</span>
-                      <span className="meta-badge">{item.file_size}</span>
-                    </>
+            <div
+              key={`list-${item.id}`}
+              className={`result-row ${hasLink ? 'has-link' : ''}`}
+              tabIndex={hasLink ? 0 : -1}
+              onDoubleClick={() => hasLink && handleOpenLink(item.link)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && hasLink && e.target === e.currentTarget) handleOpenLink(item.link);
+              }}
+            >
+              <div
+                className="result-row__avatar"
+                style={{ background: getCardGradient(item.title) }}
+                aria-hidden="true"
+              >
+                {initial}
+              </div>
+
+              <div className="result-row__main">
+                <h3 className="result-row__title" title={item.title}>
+                  {item.title}
+                </h3>
+                <div className="result-row__meta">
+                  {item.subtitle && (
+                    <span className="result-row__subtitle" title={item.subtitle}>
+                      {item.subtitle}
+                    </span>
                   )}
+                  <span className="result-row__source" title={item.source_name}>
+                    <span className="result-row__dot" style={{ background: `hsl(${getHue(item.source_name || '')}, 70%, 58%)` }} />
+                    {item.source_name}
+                  </span>
+                  {item.file_size && <span className="result-row__size">{item.file_size}</span>}
                 </div>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-                {/* Slot para acciones inyectadas por plugins */}
-                <Slot name="card_actions" context={item} />
+              <div className="result-actions">
+                {/* Acciones de plugins agrupadas en el menú "⋯" */}
+                <CardActionsMenu item={item} />
 
                 {hasLink ? (
-                  <button
-                    type="button"
-                    className="magnet-link"
-                    style={{ opacity: 1, visibility: 'visible', transform: 'none', pointerEvents: 'auto' }}
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="result-row__open"
                     onClick={() => handleOpenLink(item.link)}
                     title={item.link || ''}
+                    iconRight={isMagnet ? <Magnet size={12} /> : <ExternalLink size={12} />}
                   >
-                    <span>{isMagnet ? 'Magnet' : 'Enlace'}</span>
-                    <ExternalLink size={12} />
-                  </button>
+                    {isMagnet ? 'Magnet' : 'Abrir'}
+                  </Button>
                 ) : (
-                  <span className="no-magnet">Sin enlace</span>
+                  <span className="result-row__nolink">Sin enlace</span>
                 )}
               </div>
             </div>
@@ -211,10 +272,10 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
       </div>
 
       {hasMore && (
-        <div style={{ display: 'flex', justifyContent: 'center', marginTop: '24px' }}>
-          <button type="button" className="action-btn secondary" onClick={onLoadMore} style={{ minHeight: '34px', padding: '0 20px' }}>
+        <div className="load-more">
+          <Button variant="secondary" onClick={onLoadMore}>
             Cargar más resultados
-          </button>
+          </Button>
         </div>
       )}
     </div>

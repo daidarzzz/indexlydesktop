@@ -3,6 +3,8 @@ import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { Search, Terminal, CornerDownLeft, Sparkles, X } from 'lucide-react';
 import { pluginHost } from '../plugins/host/PluginHost';
 import { Command } from '../plugins/types';
+import { IndexlyLogo } from './IndexlyLogo';
+import { IconButton, Kbd } from '../ui';
 
 export interface CommandPaletteModalProps {
   isOpen: boolean;
@@ -194,6 +196,7 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="command-palette-header">
+          <IndexlyLogo size={20} style={{ borderRadius: "5px", flexShrink: 0, marginRight: "6px" }} />
           <Search size={16} className="command-palette-search-icon" />
           <input
             ref={inputRef}
@@ -205,16 +208,18 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
             onKeyDown={handleKeyDown}
           />
           {query ? (
-            <button
-              type="button"
+            <IconButton
+              label="Limpiar búsqueda"
+              size="sm"
               className="command-palette-clear-btn"
               onClick={() => setQuery('')}
-              aria-label="Limpiar búsqueda"
             >
               <X size={14} />
-            </button>
+            </IconButton>
           ) : (
-            <span className="command-palette-hint">ESC para cerrar</span>
+            <span className="command-palette-hint">
+              <Kbd>ESC</Kbd> para cerrar
+            </span>
           )}
         </div>
 
@@ -262,13 +267,13 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
 
         <div className="command-palette-footer">
           <span className="command-palette-tip">
-            <kbd>↑</kbd> <kbd>↓</kbd> para navegar
+            <Kbd keys="↑" /> <Kbd keys="↓" /> para navegar
           </span>
           <span className="command-palette-tip">
-            <kbd>↵</kbd> para ejecutar
+            <Kbd keys="↵" /> para ejecutar
           </span>
           <span className="command-palette-tip">
-            <kbd>ESC</kbd> para salir
+            <Kbd keys="ESC" /> para salir
           </span>
         </div>
       </div>

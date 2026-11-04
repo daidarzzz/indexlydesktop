@@ -2,7 +2,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Source, LoadedPlugin } from '../types';
-import { Download, Search, Star, Globe, Loader2, RefreshCw, Check, Puzzle } from 'lucide-react';
+import { Download, Search, Star, Globe, RefreshCw, Check, Puzzle } from 'lucide-react';
+import { Button, Callout, EmptyState, Input, SegmentedControl, Spinner, type TabItem } from '../ui';
 
 interface HubExplorerProps {
   hubToken: string | null;
@@ -179,98 +180,62 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginTop: '12px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-        <div className="filter-chips">
-          <button
-            type="button"
-            className={`chip ${tab === 'popular' ? 'active' : ''}`}
-            onClick={() => setTab('popular')}
-          >
-            Populares
-          </button>
-          <button
-            type="button"
-            className={`chip ${tab === 'recent' ? 'active' : ''}`}
-            onClick={() => setTab('recent')}
-          >
-            Recientes
-          </button>
-          <button
-            type="button"
-            className={`chip ${tab === 'plugins' ? 'active' : ''}`}
-            onClick={() => setTab('plugins')}
-          >
-            Plugins
-          </button>
-          <button
-            type="button"
-            className={`chip ${tab === 'favorites' ? 'active' : ''}`}
-            onClick={() => setTab('favorites')}
-          >
-            Favoritos
-          </button>
-        </div>
+        <SegmentedControl
+          ariaLabel="Secciones del Hub"
+          value={tab}
+          onChange={(id) => setTab(id as typeof tab)}
+          items={[
+            { id: 'popular', label: 'Populares' },
+            { id: 'recent', label: 'Recientes' },
+            { id: 'plugins', label: 'Plugins' },
+            { id: 'favorites', label: 'Favoritos' },
+          ] satisfies TabItem[]}
+        />
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <div style={{ position: 'relative' }}>
-            <Search
-              size={13}
-              style={{
-                position: 'absolute',
-                left: '10px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                color: 'var(--color-text-tertiary)',
-              }}
-            />
-            <input
-              type="text"
+          <div style={{ width: '180px' }}>
+            <Input
+              controlSize="sm"
+              leadingIcon={<Search size={13} />}
               placeholder="Buscar en el Hub…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              style={{
-                background: 'var(--color-bg)',
-                border: '1px solid var(--color-border)',
-                borderRadius: '999px',
-                padding: '6px 12px 6px 30px',
-                fontSize: '11px',
-                color: 'var(--color-text)',
-                outline: 'none',
-                width: '160px',
-              }}
+              style={{ borderRadius: 'var(--radius-full)' }}
             />
           </div>
 
           {!hubToken && (
-            <button
-              type="button"
-              className="action-btn secondary"
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={onOpenConnectModal}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+              iconLeft={<Globe size={12} />}
             >
-              <Globe size={12} />
-              <span>Conectar Hub</span>
-            </button>
+              Conectar Hub
+            </Button>
           )}
         </div>
       </div>
 
       {loading && (
         <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--color-text-secondary)', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-          <Loader2 size={16} className="animate-spin" />
+          <Spinner size="md" />
           <span>Cargando catálogo de IndexlyHub…</span>
         </div>
       )}
 
       {error && !loading && (
-        <div style={{ textAlign: 'center', padding: '20px', color: '#f87171', fontSize: '12px' }}>
+        <Callout variant="danger" title="No se pudo cargar el Hub">
           {error}
-        </div>
+        </Callout>
       )}
 
       {!loading && !error && filteredPackages.length === 0 && (
-        <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--color-text-tertiary)', fontSize: '12px' }}>
-          No se encontraron {tab === 'plugins' ? 'plugins' : 'paquetes'} en esta sección.
-        </div>
+        <EmptyState
+          icon={tab === 'plugins' ? <Puzzle size={22} /> : <Star size={22} />}
+          title={`Sin ${tab === 'plugins' ? 'plugins' : 'paquetes'} en esta sección`}
+          description="Prueba con otra categoría o busca por nombre."
+        />
       )}
 
       {!loading && !error && filteredPackages.length > 0 && (
@@ -397,90 +362,53 @@ export const HubExplorer: React.FC<HubExplorerProps> = ({
                 <div className="index-pill-actions">
                   {isPlugin ? (
                     pluginStatus === 'update_available' ? (
-                      <button
-                        type="button"
-                        className="action-btn upd-go"
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        className="upd-go"
                         onClick={() => handleInstallPlugin(pkg)}
-                        disabled={isWorking}
+                        loading={isWorking}
                         title={`Actualizar a la versión ${pkg.version}`}
+                        iconLeft={!isWorking ? <RefreshCw size={12} /> : undefined}
                       >
-                        {isWorking ? (
-                          <Loader2 size={12} className="animate-spin" />
-                        ) : (
-                          <RefreshCw size={12} />
-                        )}
-                        <span>{isWorking ? 'Actualizando…' : 'Actualizar'}</span>
-                      </button>
+                        {isWorking ? 'Actualizando…' : 'Actualizar'}
+                      </Button>
                     ) : pluginStatus === 'installed' ? (
-                      <button
-                        type="button"
-                        className="action-btn secondary"
+                      <Button
+                        variant="secondary"
+                        size="sm"
                         onClick={() => handleInstallPlugin(pkg)}
-                        disabled={isWorking}
+                        loading={isWorking}
                         title="Reinstalar o refrescar versión"
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                        iconLeft={!isWorking ? <Check size={12} style={{ color: '#4ade80' }} /> : undefined}
                       >
-                        {isWorking ? (
-                          <Loader2 size={12} className="animate-spin" />
-                        ) : (
-                          <Check size={12} style={{ color: '#4ade80' }} />
-                        )}
-                        <span>{isWorking ? 'Instalando…' : 'Al día'}</span>
-                      </button>
+                        {isWorking ? 'Instalando…' : 'Al día'}
+                      </Button>
                     ) : (
-                      <button
-                        type="button"
-                        className="action-btn"
+                      <Button
+                        variant="primary"
+                        size="sm"
                         onClick={() => handleInstallPlugin(pkg)}
-                        disabled={isWorking}
-                        style={{
-                          background: 'var(--color-primary)',
-                          color: '#ffffff',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '5px',
-                          padding: '6px 12px',
-                          fontWeight: 600,
-                        }}
+                        loading={isWorking}
+                        iconLeft={!isWorking ? <Download size={12} /> : undefined}
                       >
-                        {isWorking ? (
-                          <Loader2 size={12} className="animate-spin" />
-                        ) : (
-                          <Download size={12} />
-                        )}
-                        <span>{isWorking ? 'Descargando…' : 'Instalar'}</span>
-                      </button>
+                        {isWorking ? 'Descargando…' : 'Instalar'}
+                      </Button>
                     )
                   ) : (
-                    <button
-                      type="button"
-                      className="action-btn"
+                    <Button
+                      variant={isDataImported ? 'secondary' : 'primary'}
+                      size="sm"
                       onClick={() => handleImport(pkg)}
-                      disabled={isWorking}
-                      style={{
-                        background: isDataImported ? 'transparent' : 'var(--color-text)',
-                        color: isDataImported ? 'var(--color-text)' : 'var(--color-bg)',
-                        border: isDataImported ? '1px solid var(--color-border)' : 'none',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '5px',
-                        padding: '6px 12px',
-                        fontWeight: 600,
-                      }}
+                      loading={isWorking}
+                      iconLeft={!isWorking ? <Download size={12} /> : undefined}
                     >
-                      {isWorking ? (
-                        <Loader2 size={12} className="animate-spin" />
-                      ) : (
-                        <Download size={12} />
-                      )}
-                      <span>
-                        {isWorking
-                          ? 'Descargando…'
-                          : isDataImported
-                          ? 'Reimportar'
-                          : 'Importar'}
-                      </span>
-                    </button>
+                      {isWorking
+                        ? 'Descargando…'
+                        : isDataImported
+                        ? 'Reimportar'
+                        : 'Importar'}
+                    </Button>
                   )}
                 </div>
               </div>

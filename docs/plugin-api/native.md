@@ -64,10 +64,19 @@ Manipulación directa y atómica de archivos locales:
 
 ---
 
-### 2.5 `app.native.net` (Red y Transferencias)
-- `fetch(input: string | Request, init?: RequestInit): Promise<Response>`: Petición HTTP nativa mediante Rust/Reqwest, sin restricciones CORS.
-- `download(url: string, dest: string, onProgress?: (n: number) => void): Promise<void>`: Descarga optimizada a disco con callback continuo.
-- `listen(port: number, cb: (req: unknown) => void): Promise<() => void>`: Servidor local TCP/HTTP para extensiones avanzadas.
+### 2.5 `app.native.http` (Peticiones HTTP sin CORS)
+Proxy HTTP implementado en Rust (`ureq`). Es la vía recomendada para hablar con servicios locales como qBittorrent, Transmission o Jellyfin, a los que el webview no puede llamar por CORS.
+
+- `request(opts): Promise<{ status: number; headers: Record<string, string>; body: string }>`
+  - `opts.method?: string` (`GET` por defecto)
+  - `opts.url: string`
+  - `opts.headers?: Record<string, string>`
+  - `opts.body?: string`
+  - `opts.timeoutMs?: number` (15 000 ms por defecto)
+
+Los códigos `4xx`/`5xx` **no** lanzan excepción: se devuelven con su `status` para que el plugin decida. Las cabeceras `Origin`, `Referer`, `Host` y `Content-Length` se descartan deliberadamente (qBittorrent rechaza los POST con `Origin`/`Referer` por CSRF).
+
+> `app.native.net.fetch` se mantiene por compatibilidad, pero internamente usa el `fetch` del navegador: **no** evita CORS. Para servicios locales usa siempre `app.native.http.request`. Ambos módulos están disponibles tanto en la API moderna (`app.native`) como en la superficie legacy (`IndexLy.plugin`).
 
 ---
 
@@ -90,3 +99,9 @@ Gestión de secretos en el keyring criptográfico del sistema operativo (Windows
 - **`shortcuts`**: `register(accel: string, cb: () => void)`, `unregister(accel: string)`.
 - **`windows`**: `create(opts: WindowOptions)`, `list(): Promise<WindowInfo[]>`, `focus(id: string)`, `close(id: string)`.
 - **`os`**: `platform(): 'windows' | 'macos' | 'linux'`, `arch(): string`, `version(): Promise<string>`, `locale(): string`.
+
+---
+
+## 3. Véase también
+
+- **`api.sources.syncItems`**: sincronización transaccional de una fuente única gestionada por el plugin (p. ej. `🧲 Torrents`). Documentado en `golden-contract.api.md`, sección 6.

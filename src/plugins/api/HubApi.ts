@@ -132,11 +132,12 @@ export class HostHubApi implements HubApi {
       });
     }
 
-    // Registrar en PluginHost y habilitar
+    // Registrar en PluginHost sin activar: toda instalación nueva arranca
+    // desactivada hasta que el usuario la habilite explícitamente.
     const defaultCode = `// ${normalized.name} v${normalized.version}\nconst { Plugin } = require('indexly');\nmodule.exports = class extends Plugin {\n  onload() {}\n  onunload() {}\n};`;
     const host = this.getRequiredHost();
-    host.registerPlugin(normalized, defaultCode);
-    await host.enablePlugin(normalized.id);
+    host.registerPlugin(normalized, defaultCode, undefined, { origin: 'hub:install' });
+    host.sharedEvents.emit('plugin:installed', { id: normalized.id, enabled: false });
   }
 
   /**

@@ -259,6 +259,25 @@ export class Notice {
 }
 ```
 
+### Biblioteca React (`app.ui.components`)
+
+Además de las primitivas DOM anteriores, `app.ui` expone la biblioteca nativa de
+componentes React de IndexLy:
+
+```ts
+export interface UiApi {
+  getTheme(): 'dark' | 'light';
+  onThemeChange(cb: (theme: string) => void): EventRef;
+  readonly components: UiKit; // Button, Card, Modal, Tabs, Field, …
+  mount(node: ReactNode, container: Element | string): Root;
+  unmount(container: Element | string): void;
+}
+```
+
+Los plugins pueden obtener `React`, `ui`, `mount` y `unmount` desde
+`require('indexly')`. Consulta la guía completa en
+[`ui-kit.md`](./ui-kit.md).
+
 ---
 
 ## 5. Taxonomía Formal de Errores

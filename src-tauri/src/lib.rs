@@ -3,6 +3,7 @@ pub mod commands;
 pub mod db;
 pub mod models;
 pub mod normalizer;
+pub mod plugin_commands;
 pub mod plugins;
 pub mod adblock;
 
@@ -58,7 +59,9 @@ pub fn run() {
         )
         .setup(|app| {
             if let Ok(shortcut) = "alt+space".parse::<Shortcut>() {
-                let _ = app.global_shortcut().register(shortcut);
+                if let Err(err) = app.global_shortcut().register(shortcut) {
+                    eprintln!("[Spotlight] No se pudo registrar Alt+Espacio (¿lo usa otra app?): {err}");
+                }
             }
 
             if let Some(spotlight) = app.get_webview_window("spotlight") {
@@ -71,6 +74,13 @@ pub fn run() {
                 });
             }
             // Resolver directorio de datos de usuario de IndexLy
+            let icon = tauri::include_image!("icons/128x128.png");
+            if let Some(main_win) = app.get_webview_window("main") {
+                let _ = main_win.set_icon(icon.clone());
+            }
+            if let Some(spotlight) = app.get_webview_window("spotlight") {
+                let _ = spotlight.set_icon(icon);
+            }
             let app_data = app
                 .path()
                 .app_data_dir()
@@ -143,10 +153,19 @@ pub fn run() {
             commands::plugin_keychain_get,
             commands::plugin_keychain_set,
             commands::plugin_keychain_delete,
+            commands::plugin_storage_get,
+            commands::plugin_storage_set,
+            commands::plugin_storage_delete,
+            commands::plugin_storage_list_keys,
+            commands::plugin_storage_read_text,
+            commands::plugin_storage_write_text,
+            commands::plugin_storage_remove,
             commands::plugin_window_show,
             commands::plugin_window_hide,
             commands::plugin_window_close,
             commands::plugin_window_toggle,
+            commands::plugin_http_request,
+            commands::plugin_source_sync_items,
         ])
         .run(tauri::generate_context!())
         .expect("error while running IndexLy Desktop");

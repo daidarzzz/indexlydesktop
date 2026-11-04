@@ -5,6 +5,13 @@
 
 const STORAGE_KEY_DIRTY_EXITS = 'indexly_dirty_exit_count';
 const STORAGE_KEY_RESTRICTED_MODE = 'indexly_restricted_mode';
+/** Tiempo tras el que una sesión arrancada se considera estable. */
+const STABLE_SESSION_MS = 15_000;
+
+/** Ventanas auxiliares (Spotlight) que no deben contar sesiones. */
+function isSecondaryWindow(): boolean {
+  return typeof window !== 'undefined' && /[?&]window=/.test(window.location?.search || '');
+}
 
 /**
  * Gestor de Modo Seguro y Modo Restringido.
@@ -48,6 +55,15 @@ export class SafeModeManager {
     const restrictedVal = this._storage.getItem(STORAGE_KEY_RESTRICTED_MODE);
     this._isRestrictedModeActive = restrictedVal === 'true';
 
+    // Las ventanas secundarias (p. ej. Spotlight) comparten localStorage con la
+    // principal pero viven ocultas y casi nunca se descargan: si contaran
+    // sesiones, inflarían el contador y activarían el Modo Seguro sin motivo.
+    // Sólo la ventana principal participa en la detección de cierres sucios.
+    if (isSecondaryWindow()) {
+      this._isSafeModeActive = false;
+      return;
+    }
+
     // 2. Contador de cierres anormales (Dirty Exits)
     const dirtyCount = parseInt(this._storage.getItem(STORAGE_KEY_DIRTY_EXITS) || '0', 10);
 
@@ -77,6 +93,9 @@ export class SafeModeManager {
       window.addEventListener('beforeunload', () => {
         this.recordCleanExit();
       });
+      // Una sesión que sobrevive al arranque se considera estable: así matar el
+      // proceso (p. ej. reiniciar `tauri dev`) no se confunde con un cierre por fallo.
+      setTimeout(() => this.recordCleanExit(), STABLE_SESSION_MS);
     }
   }
 

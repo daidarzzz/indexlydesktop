@@ -790,6 +790,16 @@ pub fn install_hub_plugin(
         })
         .unwrap_or_default();
 
+    let schema_version = pl_obj
+        .get("schemaVersion")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as u32);
+
+    let min_host_version = pl_obj
+        .get("minHostVersion")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
     let code = pl_obj
         .get("code")
         .and_then(|v| v.as_str())
@@ -805,12 +815,17 @@ pub fn install_hub_plugin(
         permissions: permissions.clone(),
         capabilities: permissions,
         author: None,
-        enabled: true,
+        // `install_plugin` decide el estado final: desactivado en instalaciones
+        // nuevas y preservado (o forzado a desactivado) en actualizaciones.
+        enabled: false,
         entry_ui: Some("index.js".to_string()),
         entry_backend: None,
         settings: None,
         main: Some("index.js".to_string()),
         styles: None,
+        schema_version,
+        min_host_version,
+        pending_permissions: Vec::new(),
     };
 
     let loaded = state
@@ -1083,173 +1098,6 @@ pub fn extract_direct_stream(
     state.adblock.extract_direct_stream(&url)
 }
 
-// ============================================================================
-// Plugin API v1 IPC Commands (`plugin:*`)
-// ============================================================================
 
-#[tauri::command]
-pub fn plugin_fs_read(path: String) -> Result<Vec<u8>, String> {
-    std::fs::read(&path).map_err(|e| format!("Error leyendo bytes de '{}': {}", path, e))
-}
-
-#[tauri::command]
-pub fn plugin_fs_read_text(path: String) -> Result<String, String> {
-    std::fs::read_to_string(&path).map_err(|e| format!("Error leyendo texto de '{}': {}", path, e))
-}
-
-#[tauri::command]
-pub fn plugin_fs_write(
-    path: String,
-    content: Option<String>,
-    bytes: Option<Vec<u8>>,
-) -> Result<(), String> {
-    if let Some(parent) = std::path::Path::new(&path).parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    if let Some(b) = bytes {
-        std::fs::write(&path, b).map_err(|e| format!("Error escribiendo bytes en '{}': {}", path, e))
-    } else if let Some(text) = content {
-        std::fs::write(&path, text).map_err(|e| format!("Error escribiendo texto en '{}': {}", path, e))
-    } else {
-        std::fs::write(&path, []).map_err(|e| format!("Error creando archivo vacío en '{}': {}", path, e))
-    }
-}
-
-#[tauri::command]
-pub fn plugin_fs_mkdir(path: String, recursive: Option<bool>) -> Result<(), String> {
-    if recursive.unwrap_or(true) {
-        std::fs::create_dir_all(&path).map_err(|e| format!("Error creando directorio '{}': {}", path, e))
-    } else {
-        std::fs::create_dir(&path).map_err(|e| format!("Error creando directorio '{}': {}", path, e))
-    }
-}
-
-#[tauri::command]
-pub fn plugin_fs_remove(path: String, recursive: Option<bool>) -> Result<(), String> {
-    let p = std::path::Path::new(&path);
-    if p.is_dir() {
-        if recursive.unwrap_or(false) {
-            std::fs::remove_dir_all(p).map_err(|e| format!("Error eliminando directorio '{}': {}", path, e))
-        } else {
-            std::fs::remove_dir(p).map_err(|e| format!("Error eliminando directorio '{}': {}", path, e))
-        }
-    } else {
-        std::fs::remove_file(p).map_err(|e| format!("Error eliminando archivo '{}': {}", path, e))
-    }
-}
-
-#[tauri::command]
-pub fn plugin_fs_rename(from: String, to: String) -> Result<(), String> {
-    std::fs::rename(&from, &to).map_err(|e| format!("Error renombrando '{}' a '{}': {}", from, to, e))
-}
-
-#[tauri::command]
-pub fn plugin_fs_stat(path: String) -> Result<serde_json::Value, String> {
-    let meta = std::fs::metadata(&path).map_err(|e| format!("Error obteniendo metadata de '{}': {}", path, e))?;
-    let modified = meta
-        .modified()
-        .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_millis() as u64);
-    let created = meta
-        .created()
-        .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_millis() as u64);
-
-    Ok(serde_json::json!({
-        "size": meta.len(),
-        "isFile": meta.is_file(),
-        "isDirectory": meta.is_dir(),
-        "isSymlink": meta.is_symlink(),
-        "modified": modified,
-        "created": created,
-    }))
-}
-
-#[tauri::command]
-pub fn plugin_fs_read_dir(path: String, recursive: Option<bool>) -> Result<Vec<FsEntry>, String> {
-    native_fs_read_dir(path, recursive)
-}
-
-#[tauri::command]
-pub async fn plugin_process_exec(
-    cmd: String,
-    args: Option<Vec<String>>,
-    cwd: Option<String>,
-) -> Result<ProcessRunResult, String> {
-    native_spawn_process(cmd, args.unwrap_or_default(), cwd).await
-}
-
-#[tauri::command]
-pub fn plugin_process_env() -> Result<std::collections::HashMap<String, String>, String> {
-    Ok(std::env::vars().collect())
-}
-
-#[tauri::command]
-pub fn plugin_db_query(
-    state: State<'_, AppState>,
-    query: String,
-) -> Result<Vec<serde_json::Value>, String> {
-    state
-        .db
-        .query_raw_json_readonly(&query)
-        .map_err(|e| format!("Error consultando SQLite: {}", e))
-}
-
-#[tauri::command]
-pub fn plugin_db_exec(
-    state: State<'_, AppState>,
-    query: String,
-) -> Result<serde_json::Value, String> {
-    let rows = state
-        .db
-        .execute_raw(&query)
-        .map_err(|e| format!("Error ejecutando SQLite: {}", e))?;
-    Ok(serde_json::json!({ "rowsAffected": rows }))
-}
-
-#[tauri::command]
-pub fn plugin_keychain_get(
-    state: State<'_, AppState>,
-    key: String,
-) -> Result<Option<String>, String> {
-    state.db.keychain_get(&key).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn plugin_keychain_set(
-    state: State<'_, AppState>,
-    key: String,
-    val: String,
-) -> Result<(), String> {
-    state.db.keychain_set(&key, &val).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn plugin_keychain_delete(
-    state: State<'_, AppState>,
-    key: String,
-) -> Result<(), String> {
-    state.db.keychain_delete(&key).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn plugin_window_show(app: AppHandle, label: String) -> Result<(), String> {
-    native_show_window(app, label)
-}
-
-#[tauri::command]
-pub fn plugin_window_hide(app: AppHandle, label: String) -> Result<(), String> {
-    native_hide_window(app, label)
-}
-
-#[tauri::command]
-pub fn plugin_window_close(app: AppHandle, label: String) -> Result<(), String> {
-    native_close_window(app, label)
-}
-
-#[tauri::command]
-pub fn plugin_window_toggle(app: AppHandle, label: String) -> Result<bool, String> {
-    native_toggle_window(app, label)
-}
+// Los comandos de la API de plugins viven en un módulo por dominio.
+pub use crate::plugin_commands::*;

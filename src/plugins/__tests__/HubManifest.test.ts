@@ -127,8 +127,13 @@ describe('HostHubApi', () => {
     expect(uninstalledListener).toHaveBeenCalledWith({ id: 'com.indexly.csv-importer' });
   });
 
-  it('debe permitir recargar en caliente un plugin (Dev Mode)', async () => {
+  it('debe instalar desactivado y permitir activación y recarga explícitas', async () => {
     await hub.install('com.indexly.csv-importer');
+
+    // Toda instalación nueva queda desactivada hasta que el usuario la active.
+    expect(host.isPluginLoaded('com.indexly.csv-importer')).toBe(false);
+
+    expect(await host.enablePlugin('com.indexly.csv-importer')).toBe(true);
     expect(host.isPluginLoaded('com.indexly.csv-importer')).toBe(true);
 
     const reloaded = await host.reloadPlugin('com.indexly.csv-importer');

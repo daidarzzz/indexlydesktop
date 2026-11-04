@@ -14,6 +14,13 @@ export type ThresholdExceededCallback = (pluginId: string, errorCount: number) =
 
 /**
  * Gestor de aislamiento de fallos y monitor de rendimiento.
+ *
+ * `safeCall`/`safeCallSync` aíslan callbacks ordinarios (comandos, eventos, clics):
+ * un fallo se registra y no se propaga al host.
+ *
+ * `safeCallCritical` se usa para hooks de ciclo de vida (`onload`, `onunload`):
+ * registra el fallo para diagnóstico, pero lo relanza para que `PluginHost` pueda
+ * invalidar la generación y desmontar los recursos del plugin.
  */
 export class SafeCallManager {
   /** Pila de contexto de ejecución para atribución síncrona/asíncrona */
@@ -98,6 +105,37 @@ export class SafeCallManager {
       if (elapsed > 250) {
         console.warn(
           `[SafeCall] ADVERTENCIA: El plugin '${pluginId}' retuvo el hilo síncrono durante ${elapsed.toFixed(1)}ms en '${contextName}'`
+        );
+      }
+      this._contextStack.pop();
+    }
+  }
+
+  /**
+   * Ejecuta un hook crítico del ciclo de vida.
+   *
+   * A diferencia de `safeCall`, el error se registra y **se relanza**. El host
+   * necesita observarlo para no marcar el plugin como cargado y para ejecutar
+   * la limpieza de recursos.
+   */
+  public async safeCallCritical<T>(
+    pluginId: string,
+    fn: () => T | Promise<T>,
+    contextName: string = 'lifecycle'
+  ): Promise<T> {
+    this._contextStack.push(pluginId);
+    const start = performance.now();
+
+    try {
+      return await fn();
+    } catch (err) {
+      this.recordError(pluginId, err, contextName);
+      throw err;
+    } finally {
+      const elapsed = performance.now() - start;
+      if (elapsed > 250) {
+        console.warn(
+          `[SafeCall] ADVERTENCIA: El plugin '${pluginId}' retuvo el hilo durante ${elapsed.toFixed(1)}ms en '${contextName}'`
         );
       }
       this._contextStack.pop();

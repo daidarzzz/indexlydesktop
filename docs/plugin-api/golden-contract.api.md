@@ -114,7 +114,8 @@ Todos los métodos `register*` y `add*` garantizan desmantelamiento automático 
 - `fs`: `read`, `readText`, `write`, `readDir`, `mkdir`, `remove`, `rename`, `stat`, `watch`
 - `path`: `join`, `resolve`, `dirname`, `basename`, `extname`, `appData`, `appConfig`, `home`, `temp`, `sep`
 - `process`: `spawn`, `exec`, `kill`, `env`, `cwd`
-- `net`: `fetch`, `download`
+- `http`: `request` (Proxy HTTP nativo en Rust, sin CORS; para servicios locales como qBittorrent)
+- `net`: `fetch`, `download` (Legacy: `fetch` usa el navegador y **no** evita CORS)
 - `clipboard`: `readText`, `writeText`, `readImage`
 - `notify`: `send`, `isPermissionGranted`, `requestPermission`
 - `tray`: `setTitle`, `setIcon`, `setTooltip`, `setMenu`
@@ -149,3 +150,25 @@ IndexlyError (base)
 - `Menu`: Menús contextuales nativos y web con soporte para atajos e iconos.
 - `SuggestModal`: Modal de autocompletado y selección de opciones en lista.
 - `FuzzySuggestModal`: Modal de búsqueda difusa con filtrado en tiempo real.
+
+---
+
+## 6. Superficie de Plugin Legacy (`IndexLy.plugin`)
+
+Los plugins cargados con `IndexLy.plugin({ id, activate, deactivate })` reciben un objeto `api` con los mismos módulos de dominio, más los puntos de montaje heredados (`addSection`, `addCardAction`, `on`, `showToast`, `modal`, `openLink`, `copyToClipboard`, `escapeHtml`, `refreshApp`). Además de `app.native.http` y `app.native.keychain`, esta superficie expone:
+
+### `api.sources`
+- `list(): Promise<Source[]>`
+- `get(id: string): Source | null`
+- `getItems(id: string): Promise<UnifiedItem[]>`
+- `toggle(id: string, active: boolean): Promise<void>`
+- `delete(id: string): Promise<void>`
+- `remove(id: string): Promise<void>`
+- `add(input: AddSourceInput): Promise<Source>`
+- `importFile(name: string, content: string, mapping?: MappingConfig): Promise<Source[]>`
+- `updateMapping(id: string, name: string, mapping: MappingConfig, flags?: Record<string, boolean>): Promise<Source>`
+- `getMappingInfo(id: string): Promise<unknown>`
+- `update(id: string, patch: unknown): void`
+- `syncItems(input: { sourceId?: string; name: string; items: UnifiedItem[]; flags?: Record<string, boolean> }): Promise<Source>`
+
+`syncItems` crea o actualiza **una sola fuente** gestionada por el plugin y reemplaza todos sus items en una transacción atómica. Es la vía recomendada para mantener una fuente única (por ejemplo `🧲 Torrents`) sin duplicar entradas en el gestor de fuentes. El `sourceId` es opcional: si se omite, se resuelve por nombre exacto y, si no existe, se genera un UUID. El estado `active` previo del usuario se preserva.

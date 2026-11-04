@@ -1,8 +1,9 @@
 // src/components/DocsView.tsx — Vista de Documentación Técnica de IndexLy v2.0 integrada como Pestaña
 import React, { useState, useMemo } from 'react';
+import { IndexlyLogo } from './IndexlyLogo';
+import { Button } from '../ui';
 import {
   Search,
-  BookOpen,
   Cpu,
   Shield,
   Activity,
@@ -1080,7 +1081,7 @@ describe('MyPlugin Lifecycle & Leaks', () => {
       <div className="docs-tab-toolbar">
         <div className="docs-toolbar-left">
           <div className="docs-toolbar-badge">
-            <BookOpen size={14} color="#38bdf8" />
+            <IndexlyLogo size={16} style={{ borderRadius: "3px" }} />
             <span>Documentación Técnica</span>
           </div>
           <span className="docs-toolbar-sub">IndexLy Platform v2.0 • Obsidian Trust Model</span>
@@ -1088,15 +1089,15 @@ describe('MyPlugin Lifecycle & Leaks', () => {
 
         <div className="docs-toolbar-right">
           {onClose && (
-            <button
-              type="button"
-              className="plx-btn plx-btn-sec docs-back-btn"
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={onClose}
               title="Volver a la vista del buscador"
+              iconLeft={<ArrowLeft size={13} />}
             >
-              <ArrowLeft size={13} />
-              <span>Volver al Buscador</span>
-            </button>
+              Volver al Buscador
+            </Button>
           )}
 
           <a

@@ -190,6 +190,10 @@ impl PluginManager {
         for p in lock.iter_mut() {
             if p.manifest.id == id {
                 p.manifest.enabled = enabled;
+                if enabled {
+                    // La activación explícita del usuario constituye el consentimiento.
+                    p.manifest.pending_permissions.clear();
+                }
                 let mut target_file = self.plugins_dir.join(id).join("manifest.json");
                 if !target_file.exists() {
                     if let Ok(entries) = fs::read_dir(&self.plugins_dir) {
@@ -230,17 +234,40 @@ impl PluginManager {
         let dir = self.plugins_dir.join(&manifest.id);
         fs::create_dir_all(&dir).map_err(|e| format!("Error creando carpeta de plugin: {}", e))?;
 
-        // Si ya existía, preservar el estado enabled
-        let previous_enabled = {
+        // Conservar el estado de una instalación existente y detectar permisos nuevos.
+        let previous = {
             let lock = self.loaded.lock().unwrap();
             lock.iter()
                 .find(|p| p.manifest.id == manifest.id)
-                .map(|p| p.manifest.enabled)
+                .map(|p| p.manifest.clone())
         };
-        if let Some(prev) = previous_enabled {
-            manifest.enabled = prev;
-        } else {
-            manifest.enabled = true;
+
+        match previous {
+            Some(prev) => {
+                manifest.enabled = prev.enabled;
+
+                let previous_perms: std::collections::HashSet<String> =
+                    prev.permissions.iter().cloned().collect();
+                let added: Vec<String> = manifest
+                    .permissions
+                    .iter()
+                    .filter(|p| !previous_perms.contains(*p))
+                    .cloned()
+                    .collect();
+
+                if added.is_empty() {
+                    manifest.pending_permissions = Vec::new();
+                } else {
+                    // Un permiso declarativo nuevo exige revisión y activación explícita.
+                    manifest.enabled = false;
+                    manifest.pending_permissions = added;
+                }
+            }
+            None => {
+                // Las instalaciones nuevas arrancan desactivadas.
+                manifest.enabled = false;
+                manifest.pending_permissions = Vec::new();
+            }
         }
 
         let js_path = dir.join("index.js");
@@ -325,5 +352,8 @@ pub fn parse_plugin_header(code: &str) -> Option<PluginManifest> {
         settings: None,
         main: Some("index.js".to_string()),
         styles: None,
+        schema_version: None,
+        min_host_version: None,
+        pending_permissions: Vec::new(),
     })
 }

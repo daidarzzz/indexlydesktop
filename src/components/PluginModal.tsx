@@ -7,8 +7,8 @@ import { safeModeManager } from '../plugins/host/SafeMode';
 import {
   X,
   Puzzle,
-  ShieldCheck,
   ShieldAlert,
+  ShieldCheck,
   Check,
   RefreshCw,
   Settings2,
@@ -16,6 +16,7 @@ import {
   Sliders,
   RotateCcw,
 } from 'lucide-react';
+import { Badge, Button, Callout, EmptyState, IconButton, Switch } from '../ui';
 
 interface PluginModalProps {
   isOpen: boolean;
@@ -169,28 +170,18 @@ export const PluginModal: React.FC<PluginModalProps> = ({
 
   return (
     <div className="modal-overlay" onClick={handleExit}>
-      <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '640px' }}>
+      <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: selectedPlugin ? '640px' : '1080px' }}>
         <div className="modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             {selectedPlugin ? (
-              <button
-                type="button"
-                className="btn-icon"
+              <IconButton
+                label="Volver a la lista de plugins"
+                size="sm"
                 onClick={() => setSelectedPlugin(null)}
-                title="Volver a la lista de plugins"
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: 'var(--color-primary)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  padding: '2px',
-                  marginRight: '2px',
-                }}
+                style={{ color: 'var(--color-primary)' }}
               >
                 <ArrowLeft size={18} />
-              </button>
+              </IconButton>
             ) : (
               <Puzzle size={18} color="var(--color-primary)" />
             )}
@@ -198,9 +189,9 @@ export const PluginModal: React.FC<PluginModalProps> = ({
               {selectedPlugin ? `Ajustes: ${selectedPlugin.manifest.name}` : 'Gestor de Extensiones y Plugins'}
             </h3>
           </div>
-          <button type="button" className="modal-close" onClick={handleExit} title="Cerrar modal">
+          <IconButton label="Cerrar modal" size="sm" className="modal-close" onClick={handleExit}>
             <X size={18} />
-          </button>
+          </IconButton>
         </div>
 
         <div className="modal-body">
@@ -222,19 +213,7 @@ export const PluginModal: React.FC<PluginModalProps> = ({
                   </span>
                 </div>
                 {savedNotice && (
-                  <span
-                    style={{
-                      fontSize: '11px',
-                      color: '#22c55e',
-                      background: 'rgba(34, 197, 94, 0.1)',
-                      border: '1px solid rgba(34, 197, 94, 0.3)',
-                      padding: '2px 8px',
-                      borderRadius: '4px',
-                      fontWeight: 500,
-                    }}
-                  >
-                    ✓ {savedNotice}
-                  </span>
+                  <Badge variant="success">✓ {savedNotice}</Badge>
                 )}
               </div>
 
@@ -292,16 +271,12 @@ export const PluginModal: React.FC<PluginModalProps> = ({
                           </label>
 
                           {field.type === 'boolean' ? (
-                            <button
-                              type="button"
-                              className="index-switch"
-                              role="switch"
-                              aria-checked={!!val}
-                              onClick={() => handleUpdateSetting(field.id, !val)}
+                            <Switch
+                              checked={!!val}
+                              onCheckedChange={(next) => handleUpdateSetting(field.id, next)}
+                              label={field.label}
                               title={val ? 'Desactivar opción' : 'Activar opción'}
-                            >
-                              <span className="knob" />
-                            </button>
+                            />
                           ) : field.type === 'number' ? (
                             <input
                               id={`setting-${field.id}`}
@@ -390,24 +365,11 @@ export const PluginModal: React.FC<PluginModalProps> = ({
 
               {/* Si el plugin aún no declara ajustes formales */}
               {!customSettingsRenderer && !modernSettingTab && currentSchema.length === 0 && (
-                <div
-                  style={{
-                    padding: '24px 16px',
-                    textAlign: 'center',
-                    background: 'var(--color-surface)',
-                    border: '1px dashed var(--color-border)',
-                    borderRadius: '12px',
-                    color: 'var(--color-text-secondary)',
-                  }}
-                >
-                  <Sliders size={28} color="var(--color-text-tertiary)" style={{ margin: '0 auto 8px' }} />
-                  <p style={{ fontSize: '13px', fontWeight: 500, color: 'var(--color-text)' }}>
-                    Sin opciones configurables
-                  </p>
-                  <span style={{ fontSize: '12px', color: 'var(--color-text-tertiary)' }}>
-                    Este plugin no requiere ajustes adicionales en su manifiesto o funciona de forma autónoma.
-                  </span>
-                </div>
+                <EmptyState
+                  icon={<Sliders size={26} />}
+                  title="Este plugin no expone ajustes configurables"
+                  description="Funciona de forma automática con su configuración predeterminada."
+                />
               )}
 
               <div
@@ -421,43 +383,25 @@ export const PluginModal: React.FC<PluginModalProps> = ({
                 }}
               >
                 {currentSchema.length > 0 ? (
-                  <button
-                    type="button"
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    iconLeft={<RotateCcw size={12} />}
                     onClick={handleResetDefaults}
-                    style={{
-                      background: 'transparent',
-                      border: 'none',
-                      color: 'var(--color-text-tertiary)',
-                      fontSize: '12px',
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                    }}
                   >
-                    <RotateCcw size={12} />
                     Restaurar por defecto
-                  </button>
+                  </Button>
                 ) : (
                   <div />
                 )}
 
-                <button
-                  type="button"
-                  className="btn-primary"
+                <Button
+                  variant="primary"
+                  size="sm"
                   onClick={() => setSelectedPlugin(null)}
-                  style={{
-                    padding: '7px 18px',
-                    fontSize: '13px',
-                    cursor: 'pointer',
-                    background: 'var(--color-primary)',
-                    color: '#fff',
-                    borderRadius: '8px',
-                    fontWeight: 500,
-                  }}
                 >
                   Listo
-                </button>
+                </Button>
               </div>
             </div>
           ) : (
@@ -471,42 +415,43 @@ export const PluginModal: React.FC<PluginModalProps> = ({
                   lineHeight: '1.5',
                 }}
               >
-                Los plugins permiten extender la interfaz inyectando nuevas vistas, botones de acción, atajos y
-                filtros personalizados.
+                Habilita extensiones para enriquecer IndexLy con acciones, chips, filtros y vistas personalizadas.
               </p>
 
-              {/* Alerta de Modo Seguro */}
+              {/* Banner de Modo Seguro */}
               {isSafe && (
                 <div
                   style={{
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    padding: '10px 14px',
+                    padding: '12px 14px',
                     marginBottom: '14px',
                     background: 'rgba(239, 68, 68, 0.1)',
                     border: '1px solid rgba(239, 68, 68, 0.3)',
-                    borderRadius: '8px',
+                    borderRadius: '10px',
                     color: '#ef4444',
-                    fontSize: '12px',
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <ShieldAlert size={16} />
-                    <span><strong>Modo Seguro Activo:</strong> Se detectaron cierres inesperados previos. Extensiones pausadas.</span>
+                    <span style={{ fontSize: '12px', fontWeight: 500 }}>
+                      Modo Seguro activo tras cierres inesperados. Todos los plugins están en pausa.
+                    </span>
                   </div>
                   <button
                     type="button"
                     onClick={() => {
                       safeModeManager.resetSafeMode();
                       setIsSafe(false);
+                      setHasChanges(true);
                     }}
                     style={{
                       background: '#ef4444',
                       color: '#fff',
                       border: 'none',
-                      borderRadius: '6px',
                       padding: '4px 10px',
+                      borderRadius: '6px',
                       fontSize: '11px',
                       cursor: 'pointer',
                       fontWeight: 600,
@@ -538,21 +483,16 @@ export const PluginModal: React.FC<PluginModalProps> = ({
                     Desactiva extensiones comunitarias para máxima seguridad y auditoría.
                   </span>
                 </div>
-                <button
-                  type="button"
-                  className="index-switch"
-                  role="switch"
-                  aria-checked={isRestricted}
-                  onClick={() => {
-                    const next = !isRestricted;
+                <Switch
+                  checked={isRestricted}
+                  onCheckedChange={(next) => {
                     safeModeManager.setRestrictedMode(next);
                     setIsRestricted(next);
                     setHasChanges(true);
                   }}
+                  label="Modo Restringido"
                   title={isRestricted ? 'Desactivar Modo Restringido' : 'Activar Modo Restringido'}
-                >
-                  <span className="knob" />
-                </button>
+                />
               </div>
 
               {hasChanges && (
@@ -575,7 +515,7 @@ export const PluginModal: React.FC<PluginModalProps> = ({
                 </div>
               )}
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div className="plugin-grid">
                 {plugins.map((p) => {
                   const { manifest } = p;
                   const schema = getPluginEffectiveSchema(p);
@@ -584,157 +524,94 @@ export const PluginModal: React.FC<PluginModalProps> = ({
                   );
                   const hasCustomSettings = !!pluginRegistry.getCustomSettingsRenderer(manifest.id) || !!modernTab;
                   const hasConfig = schema.length > 0 || hasCustomSettings;
+                  const pendingPermissions = manifest.pendingPermissions || [];
 
                   return (
-                    <div
+                    <article
                       key={manifest.id}
-                      style={{
-                        background: 'var(--color-surface-hover)',
-                        border: '1px solid var(--color-border)',
-                        borderRadius: '12px',
-                        padding: '14px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '10px',
-                      }}
+                      className={`plugin-card ${manifest.enabled ? '' : 'is-disabled'}`}
                     >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <strong style={{ fontSize: '14px', color: 'var(--color-text)' }}>{manifest.name}</strong>
-                            <span
-                              style={{
-                                fontSize: '10px',
-                                fontFamily: 'var(--font-mono)',
-                                color: 'var(--color-text-tertiary)',
-                                background: 'var(--color-bg)',
-                                border: '1px solid var(--color-border)',
-                                padding: '1px 6px',
-                                borderRadius: '999px',
-                              }}
-                            >
-                              v{manifest.version}
-                            </span>
-                          </div>
-                          <p
-                            style={{
-                              fontSize: '12px',
-                              color: 'var(--color-text-secondary)',
-                              marginTop: '4px',
-                              lineHeight: '1.4',
-                            }}
-                          >
-                            {manifest.description}
-                          </p>
+                      <header className="plugin-card__head">
+                        <div className="plugin-card__avatar" aria-hidden="true">
+                          {manifest.name.charAt(0).toUpperCase()}
                         </div>
+                        <Switch
+                          checked={manifest.enabled}
+                          onCheckedChange={(next) => onTogglePlugin(manifest.id, next)}
+                          label={manifest.enabled ? 'Deshabilitar plugin' : 'Habilitar plugin'}
+                          title={manifest.enabled ? 'Deshabilitar plugin' : 'Habilitar plugin'}
+                        />
+                      </header>
 
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          {/* Botón Recargar en caliente (Dev Mode) */}
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              setReloadingId(manifest.id);
-                              try {
-                                if ((window as any).__pluginHost?.reloadPlugin) {
-                                  await (window as any).__pluginHost.reloadPlugin(manifest.id);
-                                } else {
-                                  await onTogglePlugin(manifest.id, false);
-                                  await onTogglePlugin(manifest.id, true);
-                                }
-                              } finally {
-                                setTimeout(() => setReloadingId(null), 500);
-                              }
-                            }}
-                            title={`Recargar ${manifest.name} en caliente (Dev Mode)`}
-                            style={{
-                              background: 'rgba(255, 255, 255, 0.04)',
-                              border: '1px solid var(--color-border)',
-                              color: 'var(--color-text-secondary)',
-                              borderRadius: '7px',
-                              padding: '5px 8px',
-                              fontSize: '11px',
-                              cursor: 'pointer',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                              fontWeight: 500,
-                            }}
-                          >
-                            <RotateCcw size={12} className={reloadingId === manifest.id ? 'animate-spin' : ''} />
-                            <span>Recargar</span>
-                          </button>
-
-                          {/* Botón de Ajustes */}
-                          <button
-                            type="button"
-                            onClick={() => setSelectedPlugin(p)}
-                            title={`Configurar ajustes de ${manifest.name}`}
-                            style={{
-                              background: hasConfig ? 'rgba(56, 189, 248, 0.1)' : 'rgba(255, 255, 255, 0.04)',
-                              border: `1px solid ${hasConfig ? 'rgba(56, 189, 248, 0.25)' : 'var(--color-border)'}`,
-                              color: hasConfig ? '#38bdf8' : 'var(--color-text-secondary)',
-                              borderRadius: '7px',
-                              padding: '5px 9px',
-                              fontSize: '11px',
-                              cursor: 'pointer',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '5px',
-                              fontWeight: 500,
-                              transition: 'all 0.15s ease',
-                            }}
-                          >
-                            <Settings2 size={13} />
-                            <span>Ajustes</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            className="index-switch"
-                            role="switch"
-                            aria-checked={manifest.enabled}
-                            onClick={() => onTogglePlugin(manifest.id, !manifest.enabled)}
-                            title={manifest.enabled ? 'Deshabilitar plugin' : 'Habilitar plugin'}
-                          >
-                            <span className="knob" />
-                          </button>
-                        </div>
+                      <div className="plugin-card__title">
+                        <strong title={manifest.name}>{manifest.name}</strong>
+                        <Badge mono>v{manifest.version}</Badge>
                       </div>
 
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginTop: '2px' }}>
-                        <span
-                          style={{
-                            fontSize: '10px',
-                            color: 'var(--color-text-tertiary)',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '3px',
+                      <p className="plugin-card__desc" title={manifest.description}>
+                        {manifest.description}
+                      </p>
+
+                      {(manifest.permissions || []).length > 0 && (
+                        <div className="plugin-card__perms" aria-label="Permisos">
+                          <ShieldCheck size={11} />
+                          {(manifest.permissions || []).map((perm) => (
+                            <Badge key={perm} variant="primary" mono>
+                              {perm}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+
+                      {pendingPermissions.length > 0 && (
+                        <Callout variant="warning" icon={<ShieldAlert size={14} />}>
+                          <strong>Permisos nuevos:</strong>{' '}
+                          <span style={{ fontFamily: 'var(--font-mono)' }}>{pendingPermissions.join(', ')}</span>
+                        </Callout>
+                      )}
+
+                      <footer className="plugin-card__foot">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          disabled={!hasConfig}
+                          onClick={() => setSelectedPlugin(p)}
+                          title={hasConfig ? `Configurar ajustes de ${manifest.name}` : 'Este plugin no declara opciones configurables'}
+                          iconLeft={<Settings2 size={13} />}
+                        >
+                          Ajustes
+                        </Button>
+                        <IconButton
+                          label={`Recargar ${manifest.name} en caliente (Dev Mode)`}
+                          size="sm"
+                          variant="secondary"
+                          disabled={reloadingId === manifest.id || !manifest.enabled}
+                          onClick={async () => {
+                            setReloadingId(manifest.id);
+                            try {
+                              if ((window as any).__pluginHost?.reloadPlugin) {
+                                await (window as any).__pluginHost.reloadPlugin(manifest.id);
+                              } else {
+                                await onTogglePlugin(manifest.id, false);
+                                await onTogglePlugin(manifest.id, true);
+                              }
+                            } finally {
+                              setTimeout(() => setReloadingId(null), 500);
+                            }
                           }}
                         >
-                          <ShieldCheck size={11} />
-                          Permisos:
-                        </span>
-                        {(manifest.permissions || manifest.capabilities || []).map((perm) => (
-                          <span
-                            key={perm}
-                            style={{
-                              fontSize: '10px',
-                              fontFamily: 'var(--font-mono)',
-                              color: '#38bdf8',
-                              background: 'rgba(14, 165, 233, 0.08)',
-                              border: '1px solid rgba(14, 165, 233, 0.2)',
-                              padding: '1px 6px',
-                              borderRadius: '4px',
-                            }}
-                          >
-                            {perm}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
+                          <RotateCcw size={13} className={reloadingId === manifest.id ? 'animate-spin' : ''} />
+                        </IconButton>
+                      </footer>
+                    </article>
                   );
                 })}
               </div>
+
+              <Callout variant="warning" style={{ marginTop: '16px' }}>
+                <strong>Los permisos son declarativos.</strong> Sirven para transparencia y consentimiento, pero no
+                constituyen un sandbox: un plugin activo se ejecuta con los privilegios de la aplicación.
+              </Callout>
 
               <div
                 style={{
@@ -774,23 +651,12 @@ export const PluginModal: React.FC<PluginModalProps> = ({
                   borderTop: '1px solid var(--color-border)',
                 }}
               >
-                <button
-                  type="button"
-                  className="btn-primary"
+                <Button
+                  variant={hasChanges ? 'primary' : 'secondary'}
                   onClick={handleExit}
-                  style={{
-                    padding: '8px 18px',
-                    fontSize: '13px',
-                    cursor: 'pointer',
-                    background: hasChanges ? 'var(--color-primary)' : 'var(--color-surface)',
-                    border: '1px solid var(--color-border)',
-                    color: hasChanges ? '#fff' : 'var(--color-text)',
-                    borderRadius: '8px',
-                    fontWeight: 500,
-                  }}
                 >
                   {hasChanges ? 'Aplicar y salir' : 'Cerrar'}
-                </button>
+                </Button>
               </div>
             </div>
           )}

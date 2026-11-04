@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { Source, SourceMappingInfo, MappingConfig } from '../types';
 import { pluginRegistry } from '../plugins/PluginRegistry';
 import { Slot } from '../plugins/Slot';
+import { Button, Field, Input, Modal, Select, Spinner, Switch } from '../ui';
 
 interface MappingModalProps {
   source: Source;
@@ -92,17 +93,6 @@ export const MappingModal: React.FC<MappingModalProps> = ({
     };
   }, [source.id]);
 
-  // Cerrar al pulsar Escape
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
-
   // Cálculo en tiempo real de la vista previa
   const previewText = useMemo(() => {
     if (!sampleRaw || availableKeys.length === 0) {
@@ -160,174 +150,128 @@ export const MappingModal: React.FC<MappingModalProps> = ({
   const registeredFlags = pluginRegistry.getIndexFlags();
 
   return (
-    <div
-      id="mapping-modal"
-      className="modal-overlay"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div
-        className="modal-dialog mapping-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="mapping-title"
-      >
-        <div className="modal-header mapping-header">
-          <h4 id="mapping-title">Ajustar fuente</h4>
-          <button
-            type="button"
-            className="mapping-close"
-            onClick={onClose}
-            aria-label="Cerrar"
-          >
-            ✕
-          </button>
-        </div>
-
-        <p className="mapping-desc">
-          Renombra la fuente y elige qué campo de tu archivo corresponde a cada rol.
-        </p>
-
-        {loading ? (
-          <div style={{ padding: '24px', textAlign: 'center', color: '#64748b' }}>
-            Cargando campos del archivo...
-          </div>
-        ) : (
-          <div className="mapping-fields">
-            <label className="mapping-label" htmlFor="map-name">
-              Nombre de la fuente
-              <input
-                id="map-name"
-                type="text"
-                className="mapping-input"
-                placeholder="Ej: Mis Juegos"
-                maxLength={60}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                autoFocus
-              />
-            </label>
-
-            <label className="mapping-label" htmlFor="map-title">
-              Título (obligatorio)
-              <select
-                id="map-title"
-                value={titleKey}
-                onChange={(e) => setTitleKey(e.target.value)}
-              >
-                {availableKeys.length === 0 && <option value="">(Sin campos disponibles)</option>}
-                {availableKeys.map((k) => (
-                  <option key={k} value={k}>
-                    {k}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="mapping-label" htmlFor="map-subtitle">
-              Subtítulo (opcional)
-              <select
-                id="map-subtitle"
-                value={subtitleKey}
-                onChange={(e) => setSubtitleKey(e.target.value)}
-              >
-                <option value="">(ninguno)</option>
-                {availableKeys.map((k) => (
-                  <option key={k} value={k}>
-                    {k}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="mapping-label" htmlFor="map-link">
-              Enlace (opcional)
-              <select
-                id="map-link"
-                value={linkKey}
-                onChange={(e) => setLinkKey(e.target.value)}
-              >
-                <option value="">(ninguno)</option>
-                {availableKeys.map((k) => (
-                  <option key={k} value={k}>
-                    {k}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            {/* Flags de plugins (ej: plugin Streaming) */}
-            {registeredFlags.length > 0 && (
-              <div id="map-flags" className="map-flags">
-                {registeredFlags.map((f) => {
-                  const isChecked = !!flags[f.id];
-                  return (
-                    <div key={f.id} className="plx-flag-row">
-                      <div className="plx-flag-txt">
-                        <span>{f.label}</span>
-                        {f.hint && <small>{f.hint}</small>}
-                      </div>
-                      <button
-                        type="button"
-                        className="index-switch"
-                        role="switch"
-                        aria-checked={isChecked}
-                        aria-label={f.label}
-                        onClick={() =>
-                          setFlags((prev) => ({
-                            ...prev,
-                            [f.id]: !isChecked,
-                          }))
-                        }
-                      >
-                        <span className="knob" />
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Extensibilidad: Slot para que cualquier plugin agregue contenido al modal */}
-            <Slot
-              name="mapping_modal"
-              context={{
-                source,
-                availableKeys,
-                sampleRaw,
-                mapping: { titleKey, subtitleKey, linkKey },
-                flags,
-                setFlags,
-                setName,
-              }}
-            />
-          </div>
-        )}
-
-        <p className="mapping-hint">
-          Vista previa: <span id="mapping-preview">{previewText}</span>
-        </p>
-
-        <div className="mapping-actions">
-          <button
-            type="button"
-            className="mapping-btn secondary"
-            onClick={onClose}
-            disabled={saving}
-          >
+    <Modal
+      open={true}
+      onClose={onClose}
+      size="md"
+      title="Ajustar fuente"
+      description="Renombra la fuente y elige qué campo de tu archivo corresponde a cada rol."
+      footer={
+        <div className="mapping-actions" style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', width: '100%' }}>
+          <Button variant="secondary" onClick={onClose} disabled={saving}>
             Cancelar
-          </button>
-          <button
-            type="button"
-            className="mapping-btn primary"
+          </Button>
+          <Button
+            variant="primary"
             onClick={handleApply}
-            disabled={saving || loading}
+            loading={saving}
+            disabled={loading}
           >
             {saving ? 'Guardando...' : 'Aplicar'}
-          </button>
+          </Button>
         </div>
-      </div>
-    </div>
+      }
+    >
+      {loading ? (
+        <div style={{ padding: '36px', display: 'flex', justifyContent: 'center' }}>
+          <Spinner size="md" label="Cargando campos del archivo..." />
+        </div>
+      ) : (
+        <div className="mapping-fields" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <Field label="Nombre de la fuente" htmlFor="map-name">
+            <Input
+              id="map-name"
+              placeholder="Ej: Mis Juegos"
+              maxLength={60}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              autoFocus
+            />
+          </Field>
+
+          <Field label="Título (obligatorio)" htmlFor="map-title">
+            <Select
+              id="map-title"
+              value={titleKey}
+              onChange={(e) => setTitleKey(e.target.value)}
+              options={
+                availableKeys.length === 0
+                  ? [{ value: '', label: '(Sin campos disponibles)' }]
+                  : availableKeys.map((k) => ({ value: k, label: k }))
+              }
+            />
+          </Field>
+
+          <Field label="Subtítulo (opcional)" htmlFor="map-subtitle">
+            <Select
+              id="map-subtitle"
+              value={subtitleKey}
+              onChange={(e) => setSubtitleKey(e.target.value)}
+              options={[
+                { value: '', label: '(ninguno)' },
+                ...availableKeys.map((k) => ({ value: k, label: k })),
+              ]}
+            />
+          </Field>
+
+          <Field label="Enlace (opcional)" htmlFor="map-link">
+            <Select
+              id="map-link"
+              value={linkKey}
+              onChange={(e) => setLinkKey(e.target.value)}
+              options={[
+                { value: '', label: '(ninguno)' },
+                ...availableKeys.map((k) => ({ value: k, label: k })),
+              ]}
+            />
+          </Field>
+
+          {/* Flags de plugins (ej: plugin Streaming) */}
+          {registeredFlags.length > 0 && (
+            <div id="map-flags" className="map-flags" style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
+              {registeredFlags.map((f) => {
+                const isChecked = !!flags[f.id];
+                return (
+                  <div key={f.id} className="plx-flag-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 0' }}>
+                    <div className="plx-flag-txt">
+                      <span style={{ fontSize: '13px', fontWeight: 500 }}>{f.label}</span>
+                      {f.hint && <small style={{ display: 'block', color: 'var(--color-text-secondary)', fontSize: '11px' }}>{f.hint}</small>}
+                    </div>
+                    <Switch
+                      checked={isChecked}
+                      onCheckedChange={(next) =>
+                        setFlags((prev) => ({
+                          ...prev,
+                          [f.id]: next,
+                        }))
+                      }
+                      label={f.label}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Extensibilidad: Slot para que cualquier plugin agregue contenido al modal */}
+          <Slot
+            name="mapping_modal"
+            context={{
+              source,
+              availableKeys,
+              sampleRaw,
+              mapping: { titleKey, subtitleKey, linkKey },
+              flags,
+              setFlags,
+              setName,
+            }}
+          />
+
+          <p className="mapping-hint" style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
+            Vista previa: <span id="mapping-preview" style={{ fontWeight: 500, color: 'var(--color-text)' }}>{previewText}</span>
+          </p>
+        </div>
+      )}
+    </Modal>
   );
 };

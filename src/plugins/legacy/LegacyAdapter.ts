@@ -1,9 +1,17 @@
 /**
  * @file src/plugins/legacy/LegacyAdapter.ts
  * @description Adaptador retrocompatible de alto nivel que emula el Co-Kernel v3 sobre la nueva arquitectura v1.
+ *
+ * @deprecated Este adaptador **no está cableado** en la aplicación. El adaptador
+ * legacy activo vive en `PluginRegistry.createLegacyApi()` / `loadLegacyBundle()`,
+ * invocado por `PluginHost` cuando el manifiesto se detecta como legacy.
+ *
+ * Se conserva únicamente para no romper imports públicos (`src/plugins/index.ts`).
+ * No añadir funcionalidad aquí: cualquier cambio debe hacerse en el adaptador real.
  */
 
 import { CustomViewDefinition, IndexFlagConfig, LoadedPlugin, PluginSettingSchema, Source, SourceActionConfig } from '../../types';
+import * as React from 'react';
 import { App } from '../types';
 import { CardActionDefinition, ChipDefinition, ComponentOverride, PipelineMiddleware, SectionDefinition } from '../PluginRegistry';
 
@@ -360,8 +368,16 @@ export class LegacyCoKernelAdapter {
 export function installLegacyAdapter(app: App): void {
   if (typeof window === 'undefined') return;
 
+  (window as any).React = (window as any).React || React;
   (window as any).IndexLy = {
     apiVersion: 3,
+    React,
+    ui: {
+      components: app.ui.components,
+      mount: app.ui.mount,
+      unmount: app.ui.unmount,
+      React,
+    },
 
     getSections: () => {
       return (window as any).__indexly_get_sections ? (window as any).__indexly_get_sections() : [];
